@@ -1,0 +1,248 @@
+{
+ "simulated": true,
+ "scenario": "b_student_day",
+ "train": {
+  "synth_persona": "afternoon_slumper",
+  "days": 30,
+  "episodes": 167,
+  "n_feedback": 167,
+  "policy_mode": "personal",
+  "arm_stats": {
+   "light_cool_bright": {
+    "n": 10,
+    "accept": 1,
+    "reject": 3,
+    "timeout": 1,
+    "undo": 0,
+    "auto_kept": 5,
+    "effect_sum": 1.4728084023505785,
+    "effect_n": 7,
+    "accept_rate": 0.2,
+    "undo_rate": 0.0,
+    "effect_mean": 0.21040120033579693,
+    "auto_threshold": 0.75
+   },
+   "light_warm_dim": {
+    "n": 1,
+    "accept": 0,
+    "reject": 1,
+    "timeout": 0,
+    "undo": 0,
+    "auto_kept": 0,
+    "effect_sum": -0.12678821751977395,
+    "effect_n": 1,
+    "accept_rate": 0.0,
+    "undo_rate": null,
+    "effect_mean": -0.12678821751977395,
+    "auto_threshold": 0.75
+   },
+   "air_fan_up": {
+    "n": 17,
+    "accept": 7,
+    "reject": 3,
+    "timeout": 0,
+    "undo": 3,
+    "auto_kept": 4,
+    "effect_sum": 7.736410749995587,
+    "effect_n": 13,
+    "accept_rate": 0.7,
+    "undo_rate": 0.42857142857142855,
+    "effect_mean": 0.5951085192304297,
+    "auto_threshold": 0.89
+   },
+   "ventilate_suggest": {
+    "n": 5,
+    "accept": 2,
+    "reject": 2,
+    "timeout": 1,
+    "undo": 0,
+    "auto_kept": 0,
+    "effect_sum": 1.6255461220635261,
+    "effect_n": 5,
+    "accept_rate": 0.4,
+    "undo_rate": null,
+    "effect_mean": 0.32510922441270523,
+    "auto_threshold": 0.75
+   },
+   "posture_card": {
+    "n": 5,
+    "accept": 0,
+    "reject": 1,
+    "timeout": 1,
+    "undo": 2,
+    "auto_kept": 1,
+    "effect_sum": 0.7450858875809708,
+    "effect_n": 5,
+    "accept_rate": 0.0,
+    "undo_rate": 0.6666666666666666,
+    "effect_mean": 0.14901717751619417,
+    "auto_threshold": 0.84
+   },
+   "posture_voice": {
+    "n": 86,
+    "accept": 33,
+    "reject": 5,
+    "timeout": 2,
+    "undo": 2,
+    "auto_kept": 44,
+    "effect_sum": 71.64968742695726,
+    "effect_n": 80,
+    "accept_rate": 0.825,
+    "undo_rate": 0.043478260869565216,
+    "effect_mean": 0.8956210928369657,
+    "auto_threshold": 0.75
+   },
+   "sound_cue": {
+    "n": 17,
+    "accept": 3,
+    "reject": 4,
+    "timeout": 0,
+    "undo": 1,
+    "auto_kept": 9,
+    "effect_sum": 5.950069966403844,
+    "effect_n": 17,
+    "accept_rate": 0.42857142857142855,
+    "undo_rate": 0.1,
+    "effect_mean": 0.35000411567081435,
+    "auto_threshold": 0.8
+   },
+   "break_short": {
+    "n": 2,
+    "accept": 1,
+    "reject": 1,
+    "timeout": 0,
+    "undo": 0,
+    "auto_kept": 0,
+    "effect_sum": 0.7762367847584658,
+    "effect_n": 1,
+    "accept_rate": 0.5,
+    "undo_rate": null,
+    "effect_mean": 0.7762367847584658,
+    "auto_threshold": 0.75
+   },
+   "break_long": {
+    "n": 24,
+    "accept": 20,
+    "reject": 2,
+    "timeout": 2,
+    "undo": 0,
+    "auto_kept": 0,
+    "effect_sum": 16.747784680357917,
+    "effect_n": 21,
+    "accept_rate": 0.8333333333333334,
+    "undo_rate": null,
+    "effect_mean": 0.7975135562075198,
+    "auto_threshold": 0.75
+   },
+   "sleep_suggest": {
+    "n": 0,
+    "accept": 0,
+    "reject": 0,
+    "timeout": 0,
+    "undo": 0,
+    "auto_kept": 0,
+    "effect_sum": 0.0,
+    "effect_n": 0,
+    "accept_rate": null,
+    "undo_rate": null,
+    "effect_mean": null,
+    "auto_threshold": 0.75
+   }
+  },
+  "policy_path": "C:\\Users\\psybe\\AppData\\Local\\Temp/lifesim/b_student_day_ab2\\A\\policy_trained.json"
+ },
+ "compare": {
+  "A": {
+   "interventions": 7,
+   "auto": 3,
+   "suggest": 4,
+   "accept_rate": 1.0,
+   "undone": 0,
+   "woke": 3,
+   "while_drowsy": 4,
+   "posture_fixed": 2,
+   "arms": {
+    "air_fan_up": 1,
+    "break_long": 1,
+    "break_short": 1,
+    "posture_card": 1,
+    "posture_voice": 2,
+    "ventilate_suggest": 1
+   },
+   "mean_c_fatigue": 0.493,
+   "fatigue_ticks_ge_0.7": 301,
+   "drowsy_ticks_gt": 213,
+   "sleep_suggested": false,
+   "ventilate": 1,
+   "rest": true
+  },
+  "B": {
+   "interventions": 9,
+   "auto": 4,
+   "suggest": 5,
+   "accept_rate": 1.0,
+   "undone": 0,
+   "woke": 2,
+   "while_drowsy": 5,
+   "posture_fixed": 3,
+   "arms": {
+    "air_fan_up": 1,
+    "break_long": 1,
+    "break_short": 1,
+    "env_default": 1,
+    "fsm_default": 1,
+    "posture_card": 2,
+    "posture_voice": 1,
+    "sound_cue": 1
+   },
+   "mean_c_fatigue": 0.505,
+   "fatigue_ticks_ge_0.7": 322,
+   "drowsy_ticks_gt": 231,
+   "sleep_suggested": false,
+   "ventilate": 0,
+   "rest": true
+  }
+ },
+ "rules": {
+  "A": {
+   "episodes": 7,
+   "undo_then_suggest_ok": 0,
+   "undo_then_suggest_violations": 0,
+   "reject_reproposed_in_session": 0,
+   "cooldown_violations": 0,
+   "session_cap_violations": 1,
+   "missing_explanation": 0,
+   "arms": {
+    "posture_voice": 2,
+    "air_fan_up": 1,
+    "break_long": 1,
+    "posture_card": 1,
+    "ventilate_suggest": 1,
+    "null": 1
+   },
+   "sessions": {
+    "c739c054-s1": 7
+   }
+  },
+  "B": {
+   "episodes": 9,
+   "undo_then_suggest_ok": 0,
+   "undo_then_suggest_violations": 0,
+   "reject_reproposed_in_session": 0,
+   "cooldown_violations": 0,
+   "session_cap_violations": 1,
+   "missing_explanation": 0,
+   "arms": {
+    "posture_voice": 1,
+    "air_fan_up": 1,
+    "sound_cue": 1,
+    "posture_card": 2,
+    "break_long": 1,
+    "null": 3
+   },
+   "sessions": {
+    "7295cf64-s1": 9
+   }
+  }
+ }
+}

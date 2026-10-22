@@ -1,0 +1,329 @@
+{
+ "simulated": true,
+ "scenario": "b_examinee_day",
+ "description": "필기 수험생의 하루 — 비PC 필기, 닫힌 작은 방 CO₂ 상승 → 환기/공기 개입, 오후 졸음, 밤 졸음, 23시 이후 취침 권유 후보",
+ "persona": "examinee",
+ "seed": 31,
+ "fsm_config": "production",
+ "reaction_profile": "stochastic",
+ "weather": {
+  "temp_c": 17.0,
+  "humidity": 50,
+  "wind_ms": 1.0,
+  "condition": "clear"
+ },
+ "backend": "numpy",
+ "posture": {
+  "backend": "oracle",
+  "labels": [
+   "upright",
+   "lean_forward",
+   "recline",
+   "face_down",
+   "chin_rest",
+   "drowsy",
+   "away",
+   "misplaced",
+   "forward_head"
+  ],
+  "fusion": "log_softmax",
+  "vote_frames": 10
+ },
+ "tof": {
+  "tofsim_dir": "C:\\school\\26summer\\swcontest\\tof-sim-v5\\dataset\\tof_sim_v5",
+  "backend": "numpy",
+  "seed": 31,
+  "sensor_params_env": null,
+  "device_sensors": [
+   [
+    0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    8.0
+   ],
+   [
+    -0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    -8.0
+   ]
+  ],
+  "sensor_poses": {
+   "0": {
+    "position": [
+     -0.052354947174290435,
+     0.8840903086548917,
+     0.1122533483585916
+    ],
+    "pitch_down_deg": -21.042262953810706,
+    "yaw_deg": 6.553047361908902
+   },
+   "1": {
+    "position": [
+     -0.15712152985776248,
+     0.8840903086548917,
+     0.10960700128626372
+    ],
+    "pitch_down_deg": -21.042262953810706,
+    "yaw_deg": -9.446952638091098
+   }
+  },
+  "person": {
+   "scale": 0.9437346172739877,
+   "hip_z": 0.213010129666509,
+   "seat_height": 0.47517087653858003,
+   "x_offset": -0.10474581393703503,
+   "smplx": false
+  },
+  "room": {
+   "desk_height": 0.7541903086548917,
+   "desk_depth": 0.6203034787084899
+  },
+  "sensor_model": {
+   "sub_rays": 4.0,
+   "separation_m": 0.7285390421767632,
+   "threshold": 0.015,
+   "ambient": 2.6272378334159145,
+   "max_range_m": 4.0,
+   "sigma_floor_mm": 2.0,
+   "sigma_rel": 0.006619345754254886,
+   "merged_spread_m": 0.08,
+   "dropout": 0.003158935047848348,
+   "semi_valid": 0.01
+  },
+  "fps": 10.0
+ },
+ "ticks": 3870,
+ "frames": 55170,
+ "wall_s": 785.3,
+ "sim_minutes": 645.0,
+ "states_visited": [
+  "START",
+  "CONTEXT_DETECT",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "RECOVERY",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "MONITOR",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY"
+ ],
+ "routes": {
+  "posture": 1,
+  "environment": 1,
+  "cognitive": 1
+ },
+ "posture_accuracy_ticks": 0.996,
+ "per_label": {
+  "away": {
+   "ticks": 1020,
+   "recall": 0.986
+  },
+  "chin_rest": {
+   "ticks": 22,
+   "recall": 0.955
+  },
+  "drowsy": {
+   "ticks": 418,
+   "recall": 1.0
+  },
+  "lean_forward": {
+   "ticks": 1500,
+   "recall": 0.997
+  },
+  "upright": {
+   "ticks": 910,
+   "recall": 0.995
+  }
+ },
+ "drowsy_ticks_gt": 418,
+ "drowsy_flag_recall_ticks": 1.0,
+ "drowsy_flag_false_ticks": 7,
+ "nod_events_detected": {
+  "0": 275,
+  "1": 275
+ },
+ "t_first_drowsy_gt_s": 16510.0,
+ "t_first_drowsy_flag_s": 16500.0,
+ "t_first_action_s": 7410.0,
+ "t_first_wake_s": null,
+ "t_focus_recovered_s": null,
+ "t_rest_s": 16640.0,
+ "person": {
+  "interventions": 3,
+  "auto": 1,
+  "suggest": 2,
+  "accepted": 1,
+  "rejected": 1,
+  "timeout": 0,
+  "undone": 0,
+  "woke": 0,
+  "while_drowsy": 2,
+  "posture_fixed": 1,
+  "arms": {
+   "air_fan_up": 1,
+   "light_warm_dim": 1,
+   "posture_card": 1
+  },
+  "effects": [],
+  "session_ended_by_sleep": false
+ },
+ "interventions": [
+  {
+   "t_s": 7410,
+   "local": "15:33",
+   "arm": "posture_card",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": true,
+   "effect": null,
+   "explanation": "CO₂ 1708 ppm · 세션 2.1 h · 자세 안내 카드 수락 4/9 · 효과 +0.78 · 개인 정책 · 피드백 147건"
+  },
+  {
+   "t_s": 16520,
+   "local": "18:05",
+   "arm": "air_fan_up",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1266 ppm · 졸음 1회 · 세션 4.6 h · 공기청정기 풍량 올리기 수락 8/10 · 효과 +0.87 · 개인 정책 · 피드백 148건"
+  },
+  {
+   "t_s": 16600,
+   "local": "18:06",
+   "arm": "light_warm_dim",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "reject",
+   "script": null,
+   "while_drowsy": true,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1282 ppm · 졸음 1회 · 세션 4.6 h · 조명 따뜻하고 어둡게 수락 0/2 · 효과 +0.29 · 개인 정책 · 피드백 149건"
+  }
+ ],
+ "devices": {
+  "cmd": 1,
+  "undo": 0,
+  "alert": 1,
+  "card": 2
+ },
+ "device_events": [
+  {
+   "t": 1792650810.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_card",
+    "channel": "display",
+    "text": "CO₂ 1708 ppm · 세션 2.1 h · 자세 안내 카드 수락 4/9 · 효과 +0.78 · 개인 정책 · 피드백 147건"
+   }
+  },
+  {
+   "t": 1792659920.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "ca1156d4-1653",
+    "kind": "env_suggest",
+    "arm": "air_fan_up",
+    "text": "CO₂ 1266 ppm · 졸음 1회 · 세션 4.6 h · 공기청정기 풍량 올리기 수락 8/10 · 효과 +0.87 · 개인 정책 · 피드백 148건"
+   }
+  },
+  {
+   "t": 1792659960.0,
+   "device": "vent_fan",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_power",
+    "value": "on",
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792660000.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "ca1156d4-1662",
+    "kind": "break_suggest",
+    "arm": "light_warm_dim",
+    "text": "CO₂ 1282 ppm · 졸음 1회 · 세션 4.6 h · 조명 따뜻하고 어둡게 수락 0/2 · 효과 +0.29 · 개인 정책 · 피드백 149건"
+   }
+  }
+ ],
+ "final_env": {
+  "co2_ppm": 1871,
+  "temp_c": 23.63,
+  "felt_temp_c": 22.43,
+  "lux": 420,
+  "pm25": 27.2,
+  "window_open": false,
+  "lamp_brightness": null,
+  "fan_level": 2
+ }
+}

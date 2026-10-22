@@ -1,0 +1,202 @@
+{
+ "simulated": true,
+ "scenario": "a1_wake_first",
+ "description": "90 분 몰입(타이핑, 창문 열린 방) → 오후 졸음(끄덕임) → 첫 깨우기 개입에 반응해 바른 자세로 돌아온다",
+ "persona": "student",
+ "seed": 7,
+ "fsm_config": "demo",
+ "reaction_profile": "wake_first",
+ "weather": {
+  "temp_c": 17.0,
+  "humidity": 50,
+  "wind_ms": 1.0,
+  "condition": "clear"
+ },
+ "backend": "numpy",
+ "posture": {
+  "backend": "oracle",
+  "labels": [
+   "upright",
+   "lean_forward",
+   "recline",
+   "face_down",
+   "chin_rest",
+   "drowsy",
+   "away",
+   "misplaced",
+   "forward_head"
+  ],
+  "fusion": "log_softmax",
+  "vote_frames": 10
+ },
+ "tof": {
+  "tofsim_dir": "C:\\school\\26summer\\swcontest\\tof-sim-v5\\dataset\\tof_sim_v5",
+  "backend": "numpy",
+  "seed": 7,
+  "sensor_params_env": null,
+  "device_sensors": [
+   [
+    0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    8.0
+   ],
+   [
+    -0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    -8.0
+   ]
+  ],
+  "sensor_poses": {
+   "0": {
+    "position": [
+     0.09411300195385708,
+     0.86740572799628,
+     0.4607638824273212
+    ],
+    "pitch_down_deg": -21.267446481443702,
+    "yaw_deg": 8.542528717643403
+   },
+   "1": {
+    "position": [
+     -0.010682299881410066,
+     0.86740572799628,
+     0.46175620961895575
+    ],
+    "pitch_down_deg": -21.267446481443702,
+    "yaw_deg": -7.457471282356597
+   }
+  },
+  "person": {
+   "scale": 0.9627715060108035,
+   "hip_z": 0.28352289176479395,
+   "seat_height": 0.4855912736645339,
+   "x_offset": 0.04171819166749727,
+   "smplx": false
+  },
+  "room": {
+   "desk_height": 0.73750572799628,
+   "desk_depth": 0.8691641402908727
+  },
+  "sensor_model": {
+   "sub_rays": 4.0,
+   "separation_m": 0.6387678763473031,
+   "threshold": 0.015,
+   "ambient": 1.7932787427865997,
+   "max_range_m": 4.0,
+   "sigma_floor_mm": 2.0,
+   "sigma_rel": 0.010627058819395624,
+   "merged_spread_m": 0.08,
+   "dropout": 0.018509019917471344,
+   "semi_valid": 0.01
+  },
+  "fps": 10.0
+ },
+ "ticks": 690,
+ "frames": 17700,
+ "wall_s": 253.7,
+ "sim_minutes": 115.0,
+ "states_visited": [
+  "START",
+  "CONTEXT_DETECT",
+  "FOCUS_MIXED",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "RECOVERY",
+  "FOCUS_MIXED"
+ ],
+ "routes": {
+  "posture": 1
+ },
+ "posture_accuracy_ticks": 0.999,
+ "per_label": {
+  "drowsy": {
+   "ticks": 9,
+   "recall": 1.0
+  },
+  "upright": {
+   "ticks": 681,
+   "recall": 0.999
+  }
+ },
+ "drowsy_ticks_gt": 9,
+ "drowsy_flag_recall_ticks": 1.0,
+ "drowsy_flag_false_ticks": 2,
+ "nod_events_detected": {
+  "0": 2,
+  "1": 3
+ },
+ "t_first_drowsy_gt_s": 5410.0,
+ "t_first_drowsy_flag_s": 5400.0,
+ "t_first_action_s": 5490.0,
+ "t_first_wake_s": 5490,
+ "t_focus_recovered_s": 5520.0,
+ "t_rest_s": null,
+ "person": {
+  "interventions": 1,
+  "auto": 1,
+  "suggest": 0,
+  "accepted": 0,
+  "rejected": 0,
+  "timeout": 0,
+  "undone": 0,
+  "woke": 1,
+  "while_drowsy": 1,
+  "posture_fixed": 0,
+  "arms": {
+   "posture_card": 1
+  },
+  "effects": [],
+  "session_ended_by_sleep": false
+ },
+ "interventions": [
+  {
+   "t_s": 5490,
+   "local": "14:31",
+   "arm": "posture_card",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": "wake",
+   "while_drowsy": true,
+   "woke": true,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "졸음 1회 · 기본 정책 · 피드백 0건"
+  }
+ ],
+ "devices": {
+  "cmd": 0,
+  "undo": 0,
+  "alert": 1,
+  "card": 0
+ },
+ "device_events": [
+  {
+   "t": 1792647090.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_card",
+    "channel": "display",
+    "text": "졸음 1회 · 기본 정책 · 피드백 0건"
+   }
+  }
+ ],
+ "final_env": {
+  "co2_ppm": 633,
+  "temp_c": 18.98,
+  "felt_temp_c": 18.98,
+  "lux": 320,
+  "pm25": 34.1,
+  "window_open": false,
+  "lamp_brightness": null,
+  "fan_level": 0
+ }
+}

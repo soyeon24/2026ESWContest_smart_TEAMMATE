@@ -1,0 +1,530 @@
+{
+ "simulated": true,
+ "scenario": "b_student_day",
+ "description": "과제 중 대학생의 하루 — 오전 자세 개입, 점심 IDLE, 오후 졸음 깨우기, 닫힌 방 환기, 늦은 밤 졸음 반복",
+ "persona": "student",
+ "seed": 11,
+ "fsm_config": "production",
+ "reaction_profile": "stochastic",
+ "weather": {
+  "temp_c": 17.0,
+  "humidity": 50,
+  "wind_ms": 1.0,
+  "condition": "clear"
+ },
+ "backend": "numpy",
+ "posture": {
+  "backend": "oracle",
+  "labels": [
+   "upright",
+   "lean_forward",
+   "recline",
+   "face_down",
+   "chin_rest",
+   "drowsy",
+   "away",
+   "misplaced",
+   "forward_head"
+  ],
+  "fusion": "log_softmax",
+  "vote_frames": 10
+ },
+ "tof": {
+  "tofsim_dir": "C:\\school\\26summer\\swcontest\\tof-sim-v5\\dataset\\tof_sim_v5",
+  "backend": "numpy",
+  "seed": 11,
+  "sensor_params_env": null,
+  "device_sensors": [
+   [
+    0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    8.0
+   ],
+   [
+    -0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    -8.0
+   ]
+  ],
+  "sensor_poses": {
+   "0": {
+    "position": [
+     0.08017927682265877,
+     0.837614212166152,
+     0.27086943129462504
+    ],
+    "pitch_down_deg": -19.60501813725047,
+    "yaw_deg": 6.658868352624241
+   },
+   "1": {
+    "position": [
+     -0.024592014775611005,
+     0.837614212166152,
+     0.26841658461569773
+    ],
+    "pitch_down_deg": -19.60501813725047,
+    "yaw_deg": -9.341131647375759
+   }
+  },
+  "person": {
+   "scale": 0.8891605120615534,
+   "hip_z": 0.2325926447283388,
+   "seat_height": 0.4379358494727042,
+   "x_offset": 0.027786609515855203,
+   "smplx": false
+  },
+  "room": {
+   "desk_height": 0.7077142121661519,
+   "desk_depth": 0.7497833587320345
+  },
+  "sensor_model": {
+   "sub_rays": 4.0,
+   "separation_m": 0.7102000655527244,
+   "threshold": 0.015,
+   "ambient": 1.3428264310635145,
+   "max_range_m": 4.0,
+   "sigma_floor_mm": 2.0,
+   "sigma_rel": 0.007158837041050659,
+   "merged_spread_m": 0.08,
+   "dropout": 0.016439648308012707,
+   "semi_valid": 0.01
+  },
+  "fps": 10.0
+ },
+ "ticks": 3792,
+ "frames": 53820,
+ "wall_s": 774.8,
+ "sim_minutes": 632.0,
+ "states_visited": [
+  "START",
+  "CONTEXT_DETECT",
+  "FOCUS_MIXED",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "RECOVERY",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "RECOVERY",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "FOCUS_MIXED",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "RECOVERY",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "REST",
+  "RECOVERY",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "RECOVERY",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY"
+ ],
+ "routes": {
+  "posture": 4,
+  "environment": 2,
+  "cognitive": 3
+ },
+ "posture_accuracy_ticks": 0.995,
+ "per_label": {
+  "away": {
+   "ticks": 1260,
+   "recall": 0.989
+  },
+  "chin_rest": {
+   "ticks": 39,
+   "recall": 0.974
+  },
+  "drowsy": {
+   "ticks": 231,
+   "recall": 1.0
+  },
+  "forward_head": {
+   "ticks": 180,
+   "recall": 0.989
+  },
+  "lean_forward": {
+   "ticks": 60,
+   "recall": 0.983
+  },
+  "upright": {
+   "ticks": 2022,
+   "recall": 0.996
+  }
+ },
+ "drowsy_ticks_gt": 231,
+ "drowsy_flag_recall_ticks": 1.0,
+ "drowsy_flag_false_ticks": 12,
+ "nod_events_detected": {
+  "0": 49,
+  "1": 49
+ },
+ "t_first_drowsy_gt_s": 14530.0,
+ "t_first_drowsy_flag_s": 14520.0,
+ "t_first_action_s": 5610.0,
+ "t_first_wake_s": 31570,
+ "t_focus_recovered_s": 28550.0,
+ "t_rest_s": 5780.0,
+ "person": {
+  "interventions": 9,
+  "auto": 4,
+  "suggest": 5,
+  "accepted": 5,
+  "rejected": 0,
+  "timeout": 0,
+  "undone": 0,
+  "woke": 2,
+  "while_drowsy": 5,
+  "posture_fixed": 3,
+  "arms": {
+   "air_fan_up": 1,
+   "break_long": 1,
+   "break_short": 1,
+   "env_default": 1,
+   "fsm_default": 1,
+   "posture_card": 2,
+   "posture_voice": 1,
+   "sound_cue": 1
+  },
+  "effects": [
+   "break:12min",
+   "break:4min"
+  ],
+  "session_ended_by_sleep": false
+ },
+ "interventions": [
+  {
+   "t_s": 5610,
+   "local": "15:33",
+   "arm": "posture_voice",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "자세 음성 안내 · 기본 정책 · 피드백 0건"
+  },
+  {
+   "t_s": 5660,
+   "local": "15:34",
+   "arm": "air_fan_up",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "공기청정기 풍량 올리기 · 기본 정책 · 피드백 0건"
+  },
+  {
+   "t_s": 5750,
+   "local": "15:35",
+   "arm": "sound_cue",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": true,
+   "effect": null,
+   "explanation": "chin_rest 6분 · 기본 정책 · 피드백 1건"
+  },
+  {
+   "t_s": 31520,
+   "local": "22:45",
+   "arm": "posture_card",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "졸음 1회 · 세션 8.8 h · 기본 정책 · 피드백 3건"
+  },
+  {
+   "t_s": 31570,
+   "local": "22:46",
+   "arm": "break_long",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": true,
+   "fixed_posture": true,
+   "effect": "break:12min",
+   "explanation": "졸음 1회 · 세션 8.8 h · 기본 정책 · 피드백 3건"
+  },
+  {
+   "t_s": 32520,
+   "local": "23:02",
+   "arm": "posture_card",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "졸음 2회 · 세션 9.0 h · 효과 +1.00 · 기본 정책 · 피드백 5건"
+  },
+  {
+   "t_s": 34520,
+   "local": "23:35",
+   "arm": "fsm_default",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "정책 미적용(기록 전용) · FSM 기본 동작 fix_posture"
+  },
+  {
+   "t_s": 34560,
+   "local": "23:36",
+   "arm": "env_default",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "정책 미적용(기록 전용) · FSM 기본 동작 adjust_environment"
+  },
+  {
+   "t_s": 34620,
+   "local": "23:37",
+   "arm": "break_short",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": true,
+   "woke": true,
+   "fixed_posture": true,
+   "effect": "break:4min",
+   "explanation": "정책 미적용(기록 전용) · FSM 기본 동작 take_a_break"
+  }
+ ],
+ "devices": {
+  "cmd": 3,
+  "undo": 0,
+  "alert": 4,
+  "card": 5
+ },
+ "device_events": [
+  {
+   "t": 1792650810.0,
+   "device": "speaker",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_voice",
+    "channel": "voice",
+    "text": "자세 음성 안내 · 기본 정책 · 피드백 0건"
+   }
+  },
+  {
+   "t": 1792650860.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "7295cf64-567",
+    "kind": "env_suggest",
+    "arm": "air_fan_up",
+    "text": "공기청정기 풍량 올리기 · 기본 정책 · 피드백 0건"
+   }
+  },
+  {
+   "t": 1792650900.0,
+   "device": "vent_fan",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_power",
+    "value": "on",
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792650950.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "7295cf64-577",
+    "kind": "break_suggest",
+    "arm": "sound_cue",
+    "text": "chin_rest 6분 · 기본 정책 · 피드백 1건"
+   }
+  },
+  {
+   "t": 1792676720.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_card",
+    "channel": "display",
+    "text": "졸음 1회 · 세션 8.8 h · 기본 정책 · 피드백 3건"
+   }
+  },
+  {
+   "t": 1792676770.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "7295cf64-3160",
+    "kind": "break_suggest",
+    "arm": "break_long",
+    "text": "졸음 1회 · 세션 8.8 h · 기본 정책 · 피드백 3건"
+   }
+  },
+  {
+   "t": 1792677720.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_card",
+    "channel": "display",
+    "text": "졸음 2회 · 세션 9.0 h · 효과 +1.00 · 기본 정책 · 피드백 5건"
+   }
+  },
+  {
+   "t": 1792679720.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": null,
+    "channel": null,
+    "text": "정책 미적용(기록 전용) · FSM 기본 동작 fix_posture"
+   }
+  },
+  {
+   "t": 1792679760.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "7295cf64-3460",
+    "kind": "env_suggest",
+    "arm": null,
+    "text": "정책 미적용(기록 전용) · FSM 기본 동작 adjust_environment"
+   }
+  },
+  {
+   "t": 1792679780.0,
+   "device": "vent_fan",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_power",
+    "value": "on",
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792679780.0,
+   "device": "desk_lamp",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_brightness",
+    "value": 70,
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792679820.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "7295cf64-3467",
+    "kind": "break_suggest",
+    "arm": null,
+    "text": "정책 미적용(기록 전용) · FSM 기본 동작 take_a_break"
+   }
+  }
+ ],
+ "final_env": {
+  "co2_ppm": 942,
+  "temp_c": 22.38,
+  "felt_temp_c": 21.18,
+  "lux": 432,
+  "pm25": 32.2,
+  "window_open": false,
+  "lamp_brightness": 70,
+  "fan_level": 2
+ }
+}

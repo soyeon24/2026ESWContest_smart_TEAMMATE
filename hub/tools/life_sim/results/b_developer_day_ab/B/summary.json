@@ -1,0 +1,508 @@
+{
+ "simulated": true,
+ "scenario": "b_developer_day",
+ "description": "재택 개발자의 하루 — 오후 시작, 긴 PC 몰입, 어두운 방 조명 개입, 밤 졸음 반복, 새벽 취침 권유 후보",
+ "persona": "developer",
+ "seed": 23,
+ "fsm_config": "production",
+ "reaction_profile": "stochastic",
+ "weather": {
+  "temp_c": 14.0,
+  "humidity": 55,
+  "wind_ms": 2.0,
+  "condition": "cloudy"
+ },
+ "backend": "numpy",
+ "posture": {
+  "backend": "oracle",
+  "labels": [
+   "upright",
+   "lean_forward",
+   "recline",
+   "face_down",
+   "chin_rest",
+   "drowsy",
+   "away",
+   "misplaced",
+   "forward_head"
+  ],
+  "fusion": "log_softmax",
+  "vote_frames": 10
+ },
+ "tof": {
+  "tofsim_dir": "C:\\school\\26summer\\swcontest\\tof-sim-v5\\dataset\\tof_sim_v5",
+  "backend": "numpy",
+  "seed": 23,
+  "sensor_params_env": null,
+  "device_sensors": [
+   [
+    0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    8.0
+   ],
+   [
+    -0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    -8.0
+   ]
+  ],
+  "sensor_poses": {
+   "0": {
+    "position": [
+     0.03858946430841416,
+     0.8715359848394418,
+     0.34653897013773743
+    ],
+    "pitch_down_deg": -20.426809131579923,
+    "yaw_deg": 11.613875960756337
+   },
+   "1": {
+    "position": [
+     -0.06600214010316732,
+     0.8715359848394418,
+     0.35314474689836545
+    ],
+    "pitch_down_deg": -20.426809131579923,
+    "yaw_deg": -4.386124039243663
+   }
+  },
+  "person": {
+   "scale": 1.0496619006229233,
+   "hip_z": 0.28639984977346744,
+   "seat_height": 0.45918892634795805,
+   "x_offset": -0.01368742823107707,
+   "smplx": false
+  },
+  "room": {
+   "desk_height": 0.7416359848394418,
+   "desk_depth": 0.7924374662634692
+  },
+  "sensor_model": {
+   "sub_rays": 4.0,
+   "separation_m": 0.7415133792217669,
+   "threshold": 0.015,
+   "ambient": 2.347801403626519,
+   "max_range_m": 4.0,
+   "sigma_floor_mm": 2.0,
+   "sigma_rel": 0.010265087260342986,
+   "merged_spread_m": 0.08,
+   "dropout": 0.0042556781579559805,
+   "semi_valid": 0.01
+  },
+  "fps": 10.0
+ },
+ "ticks": 3060,
+ "frames": 47580,
+ "wall_s": 684.4,
+ "sim_minutes": 510.0,
+ "states_visited": [
+  "START",
+  "CONTEXT_DETECT",
+  "FOCUS_PC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "FOCUS_MIXED",
+  "FOCUS_PC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "ESCALATE",
+  "REST",
+  "RECOVERY"
+ ],
+ "routes": {
+  "cognitive": 2,
+  "environment": 2,
+  "posture": 2
+ },
+ "posture_accuracy_ticks": 0.996,
+ "per_label": {
+  "away": {
+   "ticks": 480,
+   "recall": 0.979
+  },
+  "chin_rest": {
+   "ticks": 90,
+   "recall": 0.989
+  },
+  "drowsy": {
+   "ticks": 244,
+   "recall": 0.996
+  },
+  "forward_head": {
+   "ticks": 120,
+   "recall": 0.983
+  },
+  "recline": {
+   "ticks": 60,
+   "recall": 0.967
+  },
+  "upright": {
+   "ticks": 2066,
+   "recall": 0.998
+  }
+ },
+ "drowsy_ticks_gt": 244,
+ "drowsy_flag_recall_ticks": 1.0,
+ "drowsy_flag_false_ticks": 8,
+ "nod_events_detected": {
+  "0": 99,
+  "1": 99
+ },
+ "t_first_drowsy_gt_s": 19210.0,
+ "t_first_drowsy_flag_s": 19200.0,
+ "t_first_action_s": 5030.0,
+ "t_first_wake_s": 19180,
+ "t_focus_recovered_s": 13850.0,
+ "t_rest_s": 5220.0,
+ "person": {
+  "interventions": 6,
+  "auto": 0,
+  "suggest": 6,
+  "accepted": 4,
+  "rejected": 2,
+  "timeout": 0,
+  "undone": 0,
+  "woke": 1,
+  "while_drowsy": 0,
+  "posture_fixed": 0,
+  "arms": {
+   "break_short": 1,
+   "light_cool_bright": 2,
+   "light_warm_dim": 1,
+   "posture_card": 2
+  },
+  "effects": [],
+  "session_ended_by_sleep": false
+ },
+ "interventions": [
+  {
+   "t_s": 5030,
+   "local": "19:53",
+   "arm": "break_short",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "reject",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1131 ppm · 조도 95 lx 어두움 · forward_head 10분 · 사용자 행동이 필요해 묻고 진행 · 기본 정책 · 피드백 0건"
+  },
+  {
+   "t_s": 5090,
+   "local": "19:54",
+   "arm": "light_cool_bright",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1123 ppm · 조도 86 lx 어두움 · forward_head 11분 · 기본 정책 · 피드백 1건"
+  },
+  {
+   "t_s": 5160,
+   "local": "19:56",
+   "arm": "posture_card",
+   "delivered": "suggest",
+   "cause": "posture",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1114 ppm · forward_head 12분 · 기본 정책 · 피드백 2건"
+  },
+  {
+   "t_s": 19110,
+   "local": "23:48",
+   "arm": "light_warm_dim",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "reject",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1209 ppm · 세션 5.3 h · 평소 취침 시각 지남 · 기본 정책 · 피드백 3건"
+  },
+  {
+   "t_s": 19180,
+   "local": "23:49",
+   "arm": "light_cool_bright",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": true,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1203 ppm · 세션 5.3 h · 평소 취침 시각 지남 · 조명 밝고 차갑게 수락 1/1 · 효과 +0.16 · 기본 정책 · 피드백 4건"
+  },
+  {
+   "t_s": 19270,
+   "local": "23:51",
+   "arm": "posture_card",
+   "delivered": "suggest",
+   "cause": "posture",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1206 ppm · 졸음 1회 · 세션 5.4 h · 평소 취침 시각 지남 · 자세 안내 카드 수락 1/1 · 효과 +0.17 · 기본 정책 · 피드백 5건"
+  }
+ ],
+ "devices": {
+  "cmd": 2,
+  "undo": 0,
+  "alert": 0,
+  "card": 6
+ },
+ "device_events": [
+  {
+   "t": 1792666430.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-504",
+    "kind": "break_suggest",
+    "arm": "break_short",
+    "text": "CO₂ 1131 ppm · 조도 95 lx 어두움 · forward_head 10분 · 사용자 행동이 필요해 묻고 진행 · 기본 정책 · 피드백 0건"
+   }
+  },
+  {
+   "t": 1792666490.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-511",
+    "kind": "env_suggest",
+    "arm": "light_cool_bright",
+    "text": "CO₂ 1123 ppm · 조도 86 lx 어두움 · forward_head 11분 · 기본 정책 · 피드백 1건"
+   }
+  },
+  {
+   "t": 1792666520.0,
+   "device": "desk_lamp",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_brightness",
+    "value": 200,
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792666560.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-519",
+    "kind": "posture_suggest",
+    "arm": "posture_card",
+    "text": "CO₂ 1114 ppm · forward_head 12분 · 기본 정책 · 피드백 2건"
+   }
+  },
+  {
+   "t": 1792680510.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-1915",
+    "kind": "break_suggest",
+    "arm": "light_warm_dim",
+    "text": "CO₂ 1209 ppm · 세션 5.3 h · 평소 취침 시각 지남 · 기본 정책 · 피드백 3건"
+   }
+  },
+  {
+   "t": 1792680580.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-1923",
+    "kind": "env_suggest",
+    "arm": "light_cool_bright",
+    "text": "CO₂ 1203 ppm · 세션 5.3 h · 평소 취침 시각 지남 · 조명 밝고 차갑게 수락 1/1 · 효과 +0.16 · 기본 정책 · 피드백 4건"
+   }
+  },
+  {
+   "t": 1792680630.0,
+   "device": "desk_lamp",
+   "what": "cmd",
+   "detail": {
+    "operation": "set_brightness",
+    "value": 200,
+    "origin_state": "ACTION_ENV",
+    "cause": "environment",
+    "gate": "suggest"
+   }
+  },
+  {
+   "t": 1792680670.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "c577f918-1933",
+    "kind": "posture_suggest",
+    "arm": "posture_card",
+    "text": "CO₂ 1206 ppm · 졸음 1회 · 세션 5.4 h · 평소 취침 시각 지남 · 자세 안내 카드 수락 1/1 · 효과 +0.17 · 기본 정책 · 피드백 5건"
+   }
+  }
+ ],
+ "final_env": {
+  "co2_ppm": 1698,
+  "temp_c": 22.84,
+  "felt_temp_c": 22.84,
+  "lux": 410,
+  "pm25": 26.1,
+  "window_open": false,
+  "lamp_brightness": 200,
+  "fan_level": 0
+ }
+}

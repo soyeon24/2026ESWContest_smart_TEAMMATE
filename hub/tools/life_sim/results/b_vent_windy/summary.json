@@ -1,0 +1,281 @@
+{
+ "simulated": true,
+ "scenario": "b_vent_choice",
+ "description": "닫힌 방 90 분 필기 → CO₂ 상승 → 턱괴기 → 자세 개입 무시 → 격상 → 환경 개입(환기·선풍기·조명) 선택 — 날씨 변주용",
+ "persona": "examinee",
+ "seed": 5,
+ "fsm_config": "production",
+ "reaction_profile": "ignore_first_any",
+ "weather": {
+  "temp_c": 16.0,
+  "humidity": 45,
+  "wind_ms": 6.5,
+  "condition": "cloudy"
+ },
+ "backend": "numpy",
+ "posture": {
+  "backend": "oracle",
+  "labels": [
+   "upright",
+   "lean_forward",
+   "recline",
+   "face_down",
+   "chin_rest",
+   "drowsy",
+   "away",
+   "misplaced",
+   "forward_head"
+  ],
+  "fusion": "log_softmax",
+  "vote_frames": 10
+ },
+ "tof": {
+  "tofsim_dir": "C:\\school\\26summer\\swcontest\\tof-sim-v5\\dataset\\tof_sim_v5",
+  "backend": "numpy",
+  "seed": 5,
+  "sensor_params_env": null,
+  "device_sensors": [
+   [
+    0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    8.0
+   ],
+   [
+    -0.0524,
+    0.1299,
+    -0.0003,
+    20.0,
+    -8.0
+   ]
+  ],
+  "sensor_poses": {
+   "0": {
+    "position": [
+     -0.05163345623792373,
+     0.8782001754247228,
+     0.4218689170554014
+    ],
+    "pitch_down_deg": -19.95636800743058,
+    "yaw_deg": 4.023140423537758
+   },
+   "1": {
+    "position": [
+     -0.15618111270964172,
+     0.8782001754247228,
+     0.4146006623631353
+    ],
+    "pitch_down_deg": -19.95636800743058,
+    "yaw_deg": -11.976859576462243
+   }
+  },
+  "person": {
+   "scale": 1.0980869825775146,
+   "hip_z": 0.44225585797777667,
+   "seat_height": 0.5366980890541114,
+   "x_offset": -0.10392809054637508,
+   "smplx": false
+  },
+  "room": {
+   "desk_height": 0.7483001754247228,
+   "desk_depth": 0.8423822369209482
+  },
+  "sensor_model": {
+   "sub_rays": 4.0,
+   "separation_m": 0.560364221673455,
+   "threshold": 0.015,
+   "ambient": 1.1135124324083827,
+   "max_range_m": 4.0,
+   "sigma_floor_mm": 2.0,
+   "sigma_rel": 0.014559206830762195,
+   "merged_spread_m": 0.08,
+   "dropout": 0.01720868242652498,
+   "semi_valid": 0.01
+  },
+  "fps": 10.0
+ },
+ "ticks": 1020,
+ "frames": 4860,
+ "wall_s": 84.0,
+ "sim_minutes": 170.0,
+ "states_visited": [
+  "START",
+  "CONTEXT_DETECT",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FATIGUE",
+  "CAUSE_ANALYSIS",
+  "ACTION_POSTURE",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_ENV",
+  "MONITOR",
+  "ESCALATE",
+  "CAUSE_ANALYSIS",
+  "ACTION_BREAK",
+  "MONITOR",
+  "ESCALATE",
+  "REST",
+  "RECOVERY",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT",
+  "FOCUS_NPC",
+  "FATIGUE_SUSPECT"
+ ],
+ "routes": {
+  "posture": 1,
+  "environment": 1,
+  "cognitive": 1
+ },
+ "posture_accuracy_ticks": 0.996,
+ "per_label": {
+  "away": {
+   "ticks": 60,
+   "recall": 0.917
+  },
+  "chin_rest": {
+   "ticks": 129,
+   "recall": 0.977
+  },
+  "lean_forward": {
+   "ticks": 540,
+   "recall": 1.0
+  },
+  "upright": {
+   "ticks": 291,
+   "recall": 0.997
+  }
+ },
+ "drowsy_ticks_gt": 0,
+ "drowsy_flag_recall_ticks": null,
+ "drowsy_flag_false_ticks": 0,
+ "nod_events_detected": {
+  "0": 0,
+  "1": 0
+ },
+ "t_first_drowsy_gt_s": null,
+ "t_first_drowsy_flag_s": null,
+ "t_first_action_s": 6200.0,
+ "t_first_wake_s": null,
+ "t_focus_recovered_s": 7420.0,
+ "t_rest_s": 6330.0,
+ "person": {
+  "interventions": 3,
+  "auto": 1,
+  "suggest": 2,
+  "accepted": 1,
+  "rejected": 1,
+  "timeout": 0,
+  "undone": 0,
+  "woke": 0,
+  "while_drowsy": 0,
+  "posture_fixed": 1,
+  "arms": {
+   "break_long": 1,
+   "posture_card": 1,
+   "ventilate_suggest": 1
+  },
+  "effects": [
+   "window_open:15min"
+  ],
+  "session_ended_by_sleep": false
+ },
+ "interventions": [
+  {
+   "t_s": 6200,
+   "local": "11:43",
+   "arm": "posture_card",
+   "delivered": "auto",
+   "cause": "posture",
+   "verdict": "auto_kept",
+   "script": "ignore",
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": true,
+   "effect": null,
+   "explanation": "CO₂ 1560 ppm · 기본 정책 · 피드백 0건"
+  },
+  {
+   "t_s": 6240,
+   "local": "11:44",
+   "arm": "ventilate_suggest",
+   "delivered": "suggest",
+   "cause": "environment",
+   "verdict": "accept",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": "window_open:15min",
+   "explanation": "CO₂ 1572 ppm · 바람 불어 환기 먼저 · 환기 15분 · 기본 정책 · 피드백 0건"
+  },
+  {
+   "t_s": 6280,
+   "local": "11:44",
+   "arm": "break_long",
+   "delivered": "suggest",
+   "cause": "cognitive",
+   "verdict": "reject",
+   "script": null,
+   "while_drowsy": false,
+   "woke": false,
+   "fixed_posture": false,
+   "effect": null,
+   "explanation": "CO₂ 1525 ppm · 기본 정책 · 피드백 1건"
+  }
+ ],
+ "devices": {
+  "cmd": 0,
+  "undo": 0,
+  "alert": 1,
+  "card": 2
+ },
+ "device_events": [
+  {
+   "t": 1792637000.0,
+   "device": "display",
+   "what": "alert",
+   "detail": {
+    "arm": "posture_card",
+    "channel": "display",
+    "text": "CO₂ 1560 ppm · 기본 정책 · 피드백 0건"
+   }
+  },
+  {
+   "t": 1792637040.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "5ab31f58-625",
+    "kind": "env_suggest",
+    "arm": "ventilate_suggest",
+    "text": "CO₂ 1572 ppm · 바람 불어 환기 먼저 · 환기 15분 · 기본 정책 · 피드백 0건"
+   }
+  },
+  {
+   "t": 1792637080.0,
+   "device": "display",
+   "what": "card",
+   "detail": {
+    "request_id": "5ab31f58-630",
+    "kind": "break_suggest",
+    "arm": "break_long",
+    "text": "CO₂ 1525 ppm · 기본 정책 · 피드백 1건"
+   }
+  }
+ ],
+ "final_env": {
+  "co2_ppm": 931,
+  "temp_c": 22.26,
+  "felt_temp_c": 22.26,
+  "lux": 420,
+  "pm25": 26.5,
+  "window_open": false,
+  "lamp_brightness": null,
+  "fan_level": 0
+ }
+}

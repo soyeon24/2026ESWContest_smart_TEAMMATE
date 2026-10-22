@@ -1,0 +1,48 @@
+# 주변기기 mock 과 방 환경 모델. 전부 시뮬 계수 — 실기 값이 아니다.
+# 제어 계약은 hub 그대로다: deskmate/control/cmd 의 {target_id, operation, value} 를 받고 control/result 로 답한다.
+#   vent_fan      블루투스 선풍기(ESP32+L9110, 0~3 단). hub 가 보내는 set_power on/off 는 on → 기본 단(fan.on_level)
+#   desk_lamp     블루투스 무드등(iLink). set_brightness 0~255. 색온도는 hub 가 아직 보내지 않는다(adapter.arm_commands)
+#   air_purifier  공기청정기(ThinQ). hub 의 control.yaml·personalize.yaml 에는 이 target 이 없다 → 시뮬에서도 명령이 안 온다
+#   speaker       블루투스 스피커·TTS. 명령 토픽이 없고 Pi 5 앱이 interaction/request·state/phase 를 보고 낸다 → 시뮬은 state 로 모사
+#   display       Pi 5 화면 카드. interaction/request → 사람 응답(feedback/user)
+
+fan:
+  on_level: 2                 # set_power on → 중(2). 0 끄기 1 약 2 중 3 강
+  felt_temp_drop_c_per_level: 0.6
+  arousal_per_level: 0.05     # 각성 가산(깨우기 확률에 더한다)
+  noise_annoy_per_level: 0.08 # 강할수록 거절·되돌리기 확률 가산
+  result_delay_s: 1.0         # BLE 왕복 모사
+
+lamp:
+  lux_per_brightness: 1.6     # brightness 255 → +408 lx (책상 위)
+  default_brightness: 110     # control.yaml undo 값과 같다
+  cool_bright_threshold: 180  # 이 이상이면 "차갑고 밝게" 로 보고 각성 가산
+  arousal_cool_bright: 0.15
+  relax_warm_dim: 0.10        # 60 이하면 이완(졸음 확률 가산 — 늦은 밤 취침 유도)
+  result_delay_s: 0.5
+
+purifier:
+  pm_drop_per_min_high: 4.0   # PM2.5 µg/m³ — 환경 모델만, CO₂ 는 못 내린다
+  co2_effect: 0.0
+
+speaker:
+  arousal_voice: 0.35         # posture_voice 채널
+  arousal_sound: 0.25         # sound_cue 채널
+  focus_disturb: 0.3          # 몰입 중이면 거절 확률 가산
+
+window:
+  leak_per_min_closed: 0.004  # 닫힌 방: (C − 바깥) 의 이 비율만큼 분당 빠진다
+  vent_per_min_open: 0.12     # 창문 열림
+  windy_multiplier: 1.8       # 바람 ≥ windy_ms 면 환기 효율
+  rain_blocks_open: true      # 비·눈이면 사람이 창문을 안 연다(정책도 환기 후보 제외)
+  default_open_min: 15        # ventilate_suggest 의 ventilate_minutes 가 없을 때
+
+environment:
+  co2_outdoor_ppm: 420
+  co2_start_ppm: 600
+  temp_outdoor_pull_per_min_open: 0.03   # 창문 열면 실내 온도가 바깥 쪽으로 이 비율만큼 분당 이동
+  temp_relax_per_min: 0.01               # 창문 닫으면 페르소나 기본 온도로 회복
+  lux_noise: 8
+  co2_noise: 12
+  pm25_start: 25
+  pm25_rise_per_min_open: 0.5            # 창문 열면 바깥 미세먼지 유입(시뮬 단순화)

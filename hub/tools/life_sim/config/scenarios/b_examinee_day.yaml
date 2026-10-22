@@ -1,0 +1,35 @@
+# §B 하루 각본 — 필기 수험생(비PC, 환기 민감, 작은 독서실 방). 13:30 시작(밤 졸음 2 가 취침 23:00 뒤). 취침 23:00.
+scenario:
+  name: b_examinee_day
+  description: 필기 수험생의 하루 — 비PC 필기, 닫힌 작은 방 CO₂ 상승 → 환기/공기 개입, 오후 졸음, 밤 졸음, 23시 이후 취침 권유 후보
+  seed: 31
+  persona: examinee
+  start_local: "2026-10-22T13:30:00"
+  fsm_config: production
+  reaction_profile: stochastic
+  weather: {temp_c: 17.0, humidity: 50, wind_ms: 1.0, condition: clear}
+  timeline:
+    - {kind: upright, duration_s: 600, typing: false, window_open: false, label: 착석·기준선(닫힌 방)}
+    - {kind: writing, duration_s: 2400, typing: false, fatigue: [0.0, 0.1], label: 필기}
+    - {kind: upright, duration_s: 1800, typing: false, fatigue: [0.1, 0.1], label: 암기}
+    - {kind: writing, duration_s: 2400, typing: false, fatigue: [0.1, 0.2], label: 필기(CO₂ 높음)}
+    - {kind: chin_rest, duration_s: 900, typing: false, fatigue: [0.2, 0.3], label: 턱괴기}
+    - {kind: upright, duration_s: 1200, typing: false, fatigue: [0.3, 0.3]}
+    - {kind: away, duration_s: 3600, label: 점심}
+    - {kind: upright, duration_s: 600, typing: false, window_open: true, label: 복귀·기준선(창문 열림)}
+    - {kind: writing, duration_s: 3000, typing: false, fatigue: [0.0, 0.2]}
+    - {kind: drowsy, duration_s: 1500, typing: false, fatigue: [0.2, 0.4],
+       nods: {interval_s: [4, 12], amp_deg: [30, 50], microsleep_p: 0.4, first_s: [3, 8]}, label: 오후 졸음}
+    - {kind: upright, duration_s: 1800, typing: false, fatigue: [0.2, 0.3], window_open: false, label: 창문 닫음}
+    - {kind: writing, duration_s: 2400, typing: false, fatigue: [0.3, 0.4]}
+    - {kind: away, duration_s: 5400, label: 저녁}
+    - {kind: upright, duration_s: 600, typing: false, window_open: true, label: 복귀·기준선(창문 열림)}
+    - {kind: writing, duration_s: 4800, typing: false, fatigue: [0.0, 0.3], label: 밤 필기}
+    - {kind: drowsy, duration_s: 1200, typing: false, fatigue: [0.3, 0.5],
+       nods: {interval_s: [4, 12], amp_deg: [30, 50], microsleep_p: 0.5, first_s: [3, 8]}, label: 밤 졸음 1}
+    - {kind: upright, duration_s: 1200, typing: false, fatigue: [0.3, 0.4]}
+    - {kind: drowsy, duration_s: 1500, typing: false, fatigue: [0.4, 0.6],
+       nods: {interval_s: [3, 9], amp_deg: [35, 55], microsleep_p: 0.6, first_s: [3, 6]}, label: 밤 졸음 2(취침 뒤)}
+    - {kind: upright, duration_s: 600, typing: false, fatigue: [0.4, 0.4]}
+    - {kind: away, duration_s: 1200, label: 종료}
+  compress: {upright: 5, writing: 5, chin_rest: 5, away: 1}

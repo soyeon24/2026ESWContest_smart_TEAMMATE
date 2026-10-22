@@ -1,0 +1,22 @@
+# §B-3 ④ 환기 상황 — 닫힌 작은 방에서 CO₂ 가 올라 환경 원인이 커진다. `--weather windy|rain|winter` 로 날씨만 바꿔
+# 환기 권유 / 선풍기 / 공기청정기 선택이 달라지는지 본다(personalize.yaml weather 규칙: 바람→환기 우선, 비→환기 제외, 겨울 5 분).
+#
+# 환경 원인은 어떤 컨텍스트에서도 첫 라우팅이 되지 못한다(비PC: 자세 0 이면 C_fatigue 최대 (0.20+0.15)/0.75 = 0.47 < 0.70,
+# 자세가 있으면 자세 그룹이 dominant). 그래서 턱괴기로 피로를 확정시키고 자세 개입을 무시해 ESCALATE 재시도(제안 게이트)에서
+# 환경 원인(0.20 > 인지 0.15)이 고르게 한다.
+scenario:
+  name: b_vent_choice
+  description: 닫힌 방 90 분 필기 → CO₂ 상승 → 턱괴기 → 자세 개입 무시 → 격상 → 환경 개입(환기·선풍기·조명) 선택 — 날씨 변주용
+  seed: 5
+  persona: examinee
+  start_local: "2026-10-22T10:00:00"
+  fsm_config: production
+  reaction_profile: ignore_first_any
+  weather: {temp_c: 16.0, humidity: 50, wind_ms: 1.0, condition: clear}
+  timeline:
+    - {kind: upright, duration_s: 600, typing: false, window_open: false, label: 착석·기준선(닫힌 방)}
+    - {kind: writing, duration_s: 5400, typing: false, fatigue: [0.0, 0.3], label: 필기 90 분}
+    - {kind: chin_rest, duration_s: 1800, typing: false, fatigue: [0.3, 0.4], label: 턱괴기(CO₂ 높음)}
+    - {kind: upright, duration_s: 1800, typing: false, fatigue: [0.3, 0.3], label: 암기}
+    - {kind: away, duration_s: 600}
+  compress: {upright: 5, writing: 5, chin_rest: 5, away: 1}

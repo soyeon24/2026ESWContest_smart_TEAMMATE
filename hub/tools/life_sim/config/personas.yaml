@@ -1,0 +1,36 @@
+# 페르소나 — personalize/synth.py 의 세 사람과 같은 뜻(과제 중 대학생·재택 개발자·필기 수험생). 손으로 적은 가정이다.
+# 키스트로크 원지표는 collector 계약(data-spec §6.4)의 필드 이름을 쓴다. 숫자는 시뮬 전용.
+personas:
+  student:
+    label_ko: 과제 중 대학생
+    synth_persona: afternoon_slumper     # personalize/synth.py PERSONAS 키 (A 계정 30 일 합성 학습에 쓴다)
+    pc_ratio: 0.55                       # typing 구간에서 키스트로크 input_active 비율 → MIXED 컨텍스트
+    bedtime_hour: 23.5
+    keystroke: {idle_ratio: 0.12, flight_cv: 0.28, correction_rate: 0.02, dwell_mean_ms: 95, flight_mean_ms: 150}
+    keystroke_fatigue: {idle_ratio: 0.35, flight_cv: 0.45, correction_rate: 0.12}   # fatigue=1 일 때 더해지는 양
+    co2_gen_ppm_per_min: 7.0             # 닫힌 방에서 사람 한 명이 올리는 CO₂(작은 방 기준 가정)
+    lux_ambient: 320
+    temp_c: 24.5
+    humidity_pct: 50
+  developer:
+    label_ko: 재택 개발자
+    synth_persona: night_owl
+    pc_ratio: 0.92
+    bedtime_hour: 25.5
+    keystroke: {idle_ratio: 0.08, flight_cv: 0.24, correction_rate: 0.015, dwell_mean_ms: 85, flight_mean_ms: 125}
+    keystroke_fatigue: {idle_ratio: 0.30, flight_cv: 0.40, correction_rate: 0.10}
+    co2_gen_ppm_per_min: 8.0
+    lux_ambient: 90
+    temp_c: 23.0
+    humidity_pct: 45
+  examinee:
+    label_ko: 필기 수험생
+    synth_persona: fresh_air
+    pc_ratio: 0.10                       # 비PC: 필기 위주
+    bedtime_hour: 23.0
+    keystroke: {idle_ratio: 0.3, flight_cv: 0.3, correction_rate: 0.02, dwell_mean_ms: 100, flight_mean_ms: 170}
+    keystroke_fatigue: {idle_ratio: 0.3, flight_cv: 0.3, correction_rate: 0.08}
+    co2_gen_ppm_per_min: 12.0            # 작은 독서실 방
+    lux_ambient: 420
+    temp_c: 24.0
+    humidity_pct: 48

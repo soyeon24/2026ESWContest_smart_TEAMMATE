@@ -1,0 +1,16 @@
+# §A ③ 끝내 안 깬다 → ESCALATE 가 세 원인을 다 쓰고 → REST(강제 휴식) 권유. 각본 구조는 a1 과 같다.
+scenario:
+  name: a3_never_wake
+  description: 90 분 몰입 → 오후 졸음. 어떤 개입에도 반응하지 않고 계속 존다. FSM 이 원인을 바꿔 가며 격상하다가 REST 로 간다
+  seed: 7
+  persona: student
+  start_local: "2026-10-22T13:00:00"
+  fsm_config: demo
+  reaction_profile: never_wake
+  weather: {temp_c: 17.0, humidity: 50, wind_ms: 1.0, condition: clear}
+  timeline:
+    - {kind: upright, duration_s: 5400, typing: true, fatigue: [0.0, 0.3], window_open: true, label: 착석·기준선·몰입 90 분(창문 열린 방)}
+    - {kind: drowsy, duration_s: 2400, typing: false, fatigue: [0.3, 0.6],
+       nods: {interval_s: [4, 10], amp_deg: [30, 50], microsleep_p: 0.4, first_s: [3, 6]}, label: 오후 졸음}
+    - {kind: upright, duration_s: 120, typing: true, label: 마무리}
+  compress: {upright: 10}

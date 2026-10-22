@@ -1,0 +1,20 @@
+# §A ① 첫 개입에 깬다. fsm.demo.yaml(타이머만 짧음: baseline 30 s, 유지 30 s)로 한 바퀴.
+#
+# 졸음은 자세 신호(delta 1.0)만으로는 피로를 확정하지 못한다: 타이핑이 멈춘 비PC 컨텍스트에서 C_fatigue =
+# (0.40·1.0 + 0.20·env + 0.15·elapsed)/0.75 ≈ 0.59 (fsm.yaml weights.fatigue.npc). 경과 90 분(ingest elapsed.full_sec 5400)
+# 과 닫힌 방의 CO₂ 상승이 함께 있어야 0.70 을 넘는다 — 그래서 각본은 "90 분 몰입 뒤 오후 졸음" 이다.
+scenario:
+  name: a1_wake_first
+  description: 90 분 몰입(타이핑, 창문 열린 방) → 오후 졸음(끄덕임) → 첫 깨우기 개입에 반응해 바른 자세로 돌아온다
+  seed: 7
+  persona: student
+  start_local: "2026-10-22T13:00:00"
+  fsm_config: demo
+  reaction_profile: wake_first
+  weather: {temp_c: 17.0, humidity: 50, wind_ms: 1.0, condition: clear}
+  timeline:
+    - {kind: upright, duration_s: 5400, typing: true, fatigue: [0.0, 0.3], window_open: true, label: 착석·기준선·몰입 90 분(창문 열린 방)}
+    - {kind: drowsy, duration_s: 1200, typing: false, fatigue: [0.3, 0.5],
+       nods: {interval_s: [4, 10], amp_deg: [30, 50], microsleep_p: 0.4, first_s: [3, 6]}, label: 오후 졸음}
+    - {kind: upright, duration_s: 300, typing: true, label: 마무리}
+  compress: {upright: 10}

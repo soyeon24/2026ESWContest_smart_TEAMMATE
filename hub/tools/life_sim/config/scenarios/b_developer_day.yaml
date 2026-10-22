@@ -1,0 +1,33 @@
+# §B 하루 각본 — 재택 개발자(올빼미, PC 92%). 18:30 시작해 새벽까지(새벽 졸음 2·3 이 취침 01:30 뒤). 취침 시각 01:30.
+scenario:
+  name: b_developer_day
+  description: 재택 개발자의 하루 — 오후 시작, 긴 PC 몰입, 어두운 방 조명 개입, 밤 졸음 반복, 새벽 취침 권유 후보
+  seed: 23
+  persona: developer
+  start_local: "2026-10-22T18:30:00"
+  fsm_config: production
+  reaction_profile: stochastic
+  weather: {temp_c: 14.0, humidity: 55, wind_ms: 2.0, condition: cloudy}
+  timeline:
+    - {kind: upright, duration_s: 600, typing: true, window_open: false, label: 착석·기준선}
+    - {kind: upright, duration_s: 3600, typing: true, fatigue: [0.0, 0.2], label: 오후 몰입}
+    - {kind: turtle, duration_s: 1200, typing: true, fatigue: [0.2, 0.3], label: 거북목}
+    - {kind: upright, duration_s: 1800, typing: true, fatigue: [0.3, 0.3]}
+    - {kind: recline, duration_s: 600, typing: false, fatigue: [0.3, 0.3], label: 뒤로 젖힘}
+    - {kind: upright, duration_s: 1800, typing: true, fatigue: [0.2, 0.3]}
+    - {kind: away, duration_s: 3600, label: 저녁}
+    - {kind: upright, duration_s: 600, typing: true, window_open: true, label: 복귀·기준선(창문 열림)}
+    - {kind: upright, duration_s: 5400, typing: true, fatigue: [0.0, 0.3], label: 밤 몰입 90 분}
+    - {kind: drowsy, duration_s: 1200, typing: false, fatigue: [0.3, 0.5],
+       nods: {interval_s: [4, 12], amp_deg: [30, 50], microsleep_p: 0.4, first_s: [3, 8]}, label: 밤 졸음 1}
+    - {kind: upright, duration_s: 2400, typing: true, fatigue: [0.3, 0.4]}
+    - {kind: chin_rest, duration_s: 900, typing: false, fatigue: [0.4, 0.4], label: 턱괴기}
+    - {kind: upright, duration_s: 1800, typing: true, fatigue: [0.4, 0.5]}
+    - {kind: drowsy, duration_s: 1500, typing: false, fatigue: [0.5, 0.7],
+       nods: {interval_s: [3, 9], amp_deg: [35, 55], microsleep_p: 0.6, first_s: [3, 6]}, label: 새벽 졸음 2(취침 뒤)}
+    - {kind: upright, duration_s: 900, typing: true, fatigue: [0.5, 0.5]}
+    - {kind: drowsy, duration_s: 900, typing: false, fatigue: [0.6, 0.7],
+       nods: {interval_s: [3, 8], amp_deg: [35, 55], microsleep_p: 0.7, first_s: [3, 6]}, label: 새벽 졸음 3}
+    - {kind: upright, duration_s: 600, typing: true, fatigue: [0.5, 0.5]}
+    - {kind: away, duration_s: 1200, label: 종료}
+  compress: {upright: 5, turtle: 5, lean_forward: 5, chin_rest: 5, recline: 5, away: 1}

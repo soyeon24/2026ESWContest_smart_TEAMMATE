@@ -1,0 +1,45 @@
+# 자세·졸음 판정 단계 설정 — 시뮬 프레임(센서별 8×8, 10 Hz) → hub 의 tof(0x03 모사)·tof_mlp 표본.
+#
+# backend:
+#   oracle  정답 라벨 + 혼동 확률(모델 없이 폐루프 자체를 시험)
+#   mlp     hub posture/tof_mlp.py 의 순수 Python MLP(config/tof_mlp.json, drowsy 클래스 없음)
+#   gru     tof_sim_v5 PostureNet(CNN+GRU, torch, drowsy 있음). --ckpt 로 체크포인트 지정(UBAI runs/<run>/ckpt_best.pt)
+fusion: log_softmax         # 두 센서는 따로 추론 후 log-softmax 합(16×8 스티칭 금지)
+vote_frames: 10             # 10 Hz × 1 s 다수결
+min_confidence: 0.3         # ingest.yaml tof.min_confidence 와 같은 뜻
+
+oracle:
+  accuracy: 0.90            # 정답 라벨을 이 확률로, 나머지는 confusion 표의 이웃으로
+  confusion:
+    drowsy: [upright, lean_forward]
+    chin_rest: [lean_forward, upright]
+    forward_head: [upright, lean_forward]
+    lean_forward: [upright, forward_head]
+    upright: [forward_head, lean_forward]
+    recline: [upright]
+    face_down: [lean_forward]
+    away: [away]
+  drowsy_from_label: true   # oracle 은 라벨이 drowsy 면 drowsy 플래그도 켠다(끄덕임 검출기와 OR)
+
+gru:
+  warmup_frames: 45         # 은닉 상태가 자리 잡는 프레임(tofsim.evaluate 와 같음)
+  drowsy_label: drowsy
+
+# 끄덕임 검출기(ESP32 TofPosture 규칙 추정기의 nod_rate_hz·drowsy 를 대신한다. 격자에서만 센다 — 라벨을 보지 않는다)
+#   센서별로 위쪽 head_rows 행의 사람 zone(min_person_mm~max_person_mm) 평균 거리 = "머리 거리"(0x03 head_delta_mm 와 같은 뜻).
+#   느린 기준선(baseline_sec 중앙값)보다 drop_mm 이상 가까워졌다가 min_s~max_s 안에 돌아오면 끄덕임 1 회
+#   (시뮬: 바른 자세 머리 ≈ 630 mm → 끄덕임 중 ≈ 370 mm). 60 s 창의 횟수 → nod_rate_hz, drowsy = rate ≥ drowsy_rate_hz
+nod_detector:
+  min_person_mm: 150
+  max_person_mm: 1300
+  head_rows: 3
+  head_min_zones: 2
+  baseline_sec: 12
+  drop_mm: 120
+  min_s: 0.3
+  max_s: 25.0               # 마이크로 수면(고개 떨군 채 최대 20 s)까지 한 번으로
+  window_s: 60
+  drowsy_rate_hz: 0.033     # 60 s 에 2 번
+  drowsy_hold_s: 90         # 마지막 끄덕임 뒤 이만큼은 drowsy 유지(끄덕임 2 회 이상일 때)
+  clear_after_quiet_s: 12   # 끄덕임 없이 이만큼 지나고 자세 판정도 drowsy 가 아니면 플래그를 내린다(깨어남 감지)
+  require_both_sensors: false

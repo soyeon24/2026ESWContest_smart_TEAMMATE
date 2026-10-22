@@ -1,0 +1,68 @@
+# 사람 반응 모델 — 개입 종류(arm)별 × 페르소나별 확률·지연·재발. 전부 손으로 적은 가정이다(사용자 데이터 아님).
+#
+# wake_p     졸음 중 이 개입(자동 실행 또는 수락한 제안)에 깨어날 확률. 환경 보정(조명·선풍기·CO₂·취침 뒤)이 더해진다
+# accept_p   제안 카드 수락 확률 (나머지는 reject; timeout_p 만큼은 무응답)
+# undo_p     자동 실행을 되돌릴 확률(되돌리기 창 undo_window_sec 안에 reject)
+# fix_p      자세 개입에 자세를 고칠 확률(턱괴기·거북목 → upright)
+# relapse_min 깨어난 뒤 다시 졸기까지 분 [lo, hi] (각본의 drowsy 구간이 남아 있을 때만 재발)
+# hold_min   자세를 고친 뒤 유지 분 [lo, hi]
+defaults:
+  respond_delay_s: [6, 45]       # 카드를 보고 답하기까지
+  undo_delay_s: [8, 40]
+  timeout_p: 0.10
+  wake_delay_s: [2, 6]           # 개입 뒤 고개를 드는 데 걸리는 시간
+  wake_transition_s: [0.5, 2.0]
+  relapse_min: [8, 20]           # 깨어난 뒤 다시 졸기까지(각본의 drowsy 구간이 남아 있을 때만)
+  hold_min: [8, 20]
+  wake_refresh_scale: 0.2        # 깨어난 동안 키스트로크 피로 지표 램프에 곱하는 값(정신이 든다)
+  break_refresh_scale: 0.1
+  break_short_min: 4
+  break_long_min: 12
+  ventilate_open_min_default: 15
+  arousal:                       # 깨우기 확률 보정(합산 뒤 0..1 클립)
+    co2_high_ppm: 1200
+    co2_high_penalty: -0.15
+    after_bedtime_penalty: -0.20
+    drowsy_count_penalty_each: -0.05   # 최근 30 분 졸음 횟수마다
+  arms:
+    posture_voice:     {wake_p: 0.80, accept_p: 0.75, undo_p: 0.10, fix_p: 0.85}
+    sound_cue:         {wake_p: 0.65, accept_p: 0.55, undo_p: 0.20, fix_p: 0.60}
+    posture_card:      {wake_p: 0.35, accept_p: 0.70, undo_p: 0.05, fix_p: 0.70}
+    light_cool_bright: {wake_p: 0.45, accept_p: 0.65, undo_p: 0.10, fix_p: 0.20}
+    light_warm_dim:    {wake_p: 0.05, accept_p: 0.40, undo_p: 0.15, fix_p: 0.00}
+    air_fan_up:        {wake_p: 0.30, accept_p: 0.60, undo_p: 0.15, fix_p: 0.10}
+    ventilate_suggest: {wake_p: 0.55, accept_p: 0.60, undo_p: 0.00, fix_p: 0.30}   # 수락 = 창문 열기 + 일어섬
+    break_short:       {wake_p: 0.60, accept_p: 0.55, undo_p: 0.00, fix_p: 0.50}   # 수락 = 자리 비움 5 분
+    break_long:        {wake_p: 0.60, accept_p: 0.35, undo_p: 0.00, fix_p: 0.50}
+    sleep_suggest:     {wake_p: 0.00, accept_p: 0.55, undo_p: 0.00, fix_p: 0.00}   # 수락 = 세션 종료(자리 비움)
+    fsm_default:       {wake_p: 0.30, accept_p: 0.50, undo_p: 0.05, fix_p: 0.50}   # 정책 없이 FSM 기본 카드(posture_alert 등)
+    env_default:       {wake_p: 0.30, accept_p: 0.55, undo_p: 0.10, fix_p: 0.10}   # control.yaml 기본 ACTION_ENV(선풍기+조명)
+
+personas:
+  student:        # 오후 슬럼프 — 음성에 잘 깨고 긴 휴식을 좋아한다
+    posture_voice: {wake_p: 0.85, accept_p: 0.85}
+    break_long:    {accept_p: 0.80}
+    light_cool_bright: {undo_p: 0.30}
+  developer:      # 올빼미 — 조명·짧은 휴식은 받고, 음성·소리는 싫어한다
+    posture_voice: {wake_p: 0.70, accept_p: 0.15, undo_p: 0.60}
+    sound_cue:     {accept_p: 0.20, undo_p: 0.50}
+    light_cool_bright: {wake_p: 0.55, accept_p: 0.85, undo_p: 0.05}
+    air_fan_up:    {undo_p: 0.70}
+    break_short:   {accept_p: 0.80}
+    break_long:    {accept_p: 0.15}
+    ventilate_suggest: {accept_p: 0.20}
+  examinee:       # 환기 민감 — 환기·공기 개입을 반기고 조명은 되돌린다
+    ventilate_suggest: {accept_p: 0.90, wake_p: 0.65}
+    air_fan_up:    {accept_p: 0.85, undo_p: 0.05}
+    light_cool_bright: {accept_p: 0.30, undo_p: 0.50}
+    posture_voice: {accept_p: 0.40}
+
+# 각본이 고르는 결정적 대본. 깨우기 계열 개입(졸음 중에 온 개입)에 차례로 적용된다. 대본이 떨어지면 확률로.
+#   wake   깨어난다(제안이면 수락)   ignore  무시(제안이면 무응답, 자동이면 그대로)   reject  거절(자동이면 되돌림)
+#   relapse_min 을 주면 그 대본에서는 깨어난 뒤 재발까지의 시간을 바꾼다(① 은 깬 채로 끝까지).
+profiles:
+  wake_first:        {script: [wake], relapse_min: [40, 60]}
+  wake_on_escalate:  {script: [ignore, wake], relapse_min: [40, 60]}
+  never_wake:        {script: [ignore, ignore, ignore, ignore, ignore, ignore, ignore, ignore]}
+  stochastic:        {script: []}
+  ignore_first_any:  {script: [ignore], scope: all}   # 첫 개입(어떤 것이든) 무시 → ESCALATE 로 다음 원인을 본다

@@ -52,5 +52,10 @@ A/B 는 `<scenario>_ab/{A,B}/` + `ab_summary.md` + `ab_fatigue.png`.
 - **CO₂ 가 오른 방에서는 깨어나도 FOCUS 로 못 돌아온다** — baseline 정규화(MAD floor 15 ppm)로 env delta 가 1.0 에 붙어
   C_fatigue ≈ 0.47(0.30~0.70) 에서 RECOVERY 에 머문다(RECOVERY 는 상한 시간이 없다). 환기(창문)를 수락해야 회복.
 - **ESCALATE 가 세 원인을 다 쓰면 REST ↔ RECOVERY ↔ ESCALATE 를 돈다** — `_remaining_options` 는 FATIGUE 재진입 때만 채워진다.
+  하루 각본에서는 첫 피로 에피소드가 2~3 분 안에 세 원인을 다 소진하고(자동 → MONITOR 한 tick → ESCALATE → 제안 → …)
+  그 뒤 몇 시간은 새 개입이 없다(자리비움 → IDLE → 새 세션이 돼야 다시 CAUSE_ANALYSIS). 하루 개입 수가 3~6 회에 그치는 이유.
+- **환경 원인은 첫 라우팅이 되지 못한다** — 비PC 에서 자세 0 이면 C_fatigue 최대 (0.20+0.15)/0.75 = 0.47 < 0.70, 자세가 있으면
+  자세 그룹이 dominant. ACTION_ENV 는 ESCALATE 재시도(제안 게이트)로만 나온다. 날씨 규칙(바람 → 환기, 비 → 환기 제외)은 그 자리에서
+  확인됐고, 겨울 5 분은 `Situation.month`(시계) 기준이라 날씨 토픽의 season 으로는 바뀌지 않는다.
 - **공기청정기 명령 경로가 없다** — `air_fan_up` arm 의 device 는 `vent_fan`(선풍기)이고 `air_purifier` target 은 control.yaml·
   personalize.yaml 어디에도 없다. 시뮬도 그대로(공기청정기 mock 은 자리만).

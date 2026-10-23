@@ -300,7 +300,7 @@ def main():
     if model is None:
         import glob
         cands = [os.path.join(HERE, "posture_net.onnx")] if os.path.isfile(os.path.join(HERE, "posture_net.onnx")) else []
-        cands = cands or sorted(glob.glob(os.path.join(HERE, "..", "rpi4_tof_deploy", "pc", "posture_net.onnx")))
+        cands = cands or sorted(glob.glob(os.path.join(HERE, "..", "dist", "pc", "posture_net.onnx")))  # GitHub Release 묶음
         cands = cands or sorted(glob.glob(os.path.join(HERE, "..", "tof-sim_ubai_random", "export_*", "posture_net.onnx")))
         if not cands:
             sys.exit("--model 을 지정하세요 (posture_net.onnx)")

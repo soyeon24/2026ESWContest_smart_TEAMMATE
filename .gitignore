@@ -50,6 +50,8 @@ build/
 # --- 로컬 작업 공간 · 생성 산출물 ---
 .worktrees/
 Claude outputs/
+# GitHub Release 에서 받아 푸는 Pi 4 묶음(모델·실행 파일) — hub/atlas-tof/docs/run-on-hotspot.md
+hub/atlas-tof/dist/
 
 # --- FSM 작업 폴더 (LGE Internal PDF · drawio 원본 · 설계 초안) ---
 FSM/

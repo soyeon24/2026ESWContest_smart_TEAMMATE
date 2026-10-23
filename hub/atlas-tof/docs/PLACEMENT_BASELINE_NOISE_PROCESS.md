@@ -51,7 +51,7 @@ CAD/지그 전이라 각도가 고정되지 않은 탓이 크다. 이 문서의 
 
 ### 2-2. 기록
 ```powershell
-cd rpi4_tof_deploy_20261017\pc
+cd hub\atlas-tof\pc
 python -I tof_noise.py --raw http://<Pi4>:8772 --seconds 60 --label wall65_fluorescent --out noise\
 ```
 - 60 s × 5 Hz × 2 센서 ≈ 600 프레임. 결과: `noise/<label>_<시각>.json` + 콘솔 요약.

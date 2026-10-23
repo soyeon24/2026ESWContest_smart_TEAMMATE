@@ -28,7 +28,8 @@ chin_rest 턱괴기 · drowsy 꾸벅 졸음 · away 자리비움 · misplaced �
 | 실행 | root SSH 로 직접(`board/start.sh`). 노션 「ATLAS 보드 SSH 접속」 9-5: SSH 터미널 직접 실행은 문서가 안내하는 정상 절차 | D-Bus activation, 설치 계정 |
 | 재부팅 뒤 | `start.sh` 다시 | `pi4-tof-activate.sh` 다시 (ATLAS 는 부팅 자동 시작 불가, `docs/reboot-recovery.md`) |
 
-**A 를 묶어 둔 것**: `sw경진대회/rpi4_tof_deploy/`(레포 밖, 모델·바이너리 포함). 그 README 가 내일 순서다.
+**A 를 묶어 둔 것**: 팀 저장소 **GitHub Release** 의 zip(모델·실행 파일 포함, 레포엔 커밋 안 함)을 `hub/atlas-tof/dist/` 에 푼다.
+핫스팟에서 누구 PC 로든 처음부터 띄우는 순서는 [`docs/run-on-hotspot.md`](docs/run-on-hotspot.md).
 B 는 같은 소스다. sdbus-c++ 가 SDK 에 있으면 D-Bus 이름을 소유하고(hub 와 같음), 없으면 그 부분 없이 빌드된다(camsvc 와 같음).
 
 ```sh

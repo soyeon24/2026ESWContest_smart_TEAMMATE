@@ -5,6 +5,7 @@
        Pi 4 의 `UART\\t{json}` 라인과 같은 디코더를 지나므로 필드 단위·범위도 실기와 같게 깎인다.
 - 환경·키스트로크: tools/mqtt_scenario_sim.py 와 같은 토픽·payload 를 route_mqtt_message 로.
 - 피드백: cache.put_feedback({request_id, verdict, response_ms}) — display 가 보내는 것과 같은 모양.
+- 피로 기록 앱 KSS 응답: deskmate/fatigue/label 을 route_mqtt_message 로(self_report.py) — 반응 학습 라벨.
 - 제어: LiveHub 의 ControlDispatcher + MockPlugAdapter. publish_cmd 를 감싸 명령을 밖으로도 넘긴다(DeviceWorld 가 받는다).
 시간은 전부 가상 시계(`t`, epoch 초)로 넘긴다 — ingest 의 신선도 판정도 그 시계로 돈다.
 """
@@ -16,11 +17,12 @@ import os
 from typing import Any, Callable
 
 import numpy as np
+import yaml
 
 from deskmate_hub.control import load_control_config
 from deskmate_hub.inference import State, load_config
 from deskmate_hub.ingest import SensorCache, load_ingest_config
-from deskmate_hub.ingest.mqtt_lines import route_mqtt_message
+from deskmate_hub.ingest.mqtt_lines import TOPIC_FATIGUE_LABEL, route_mqtt_message
 from deskmate_hub.ingest.uart_frame import (TYPE_ENV, TYPE_MMWAVE, TYPE_TOF_FEATURES, TYPE_TOF_GRID, Frame, TofGridAssembler, decode_payload,
                                             encode_payload, encode_tof_sensor_frames)
 from deskmate_hub.ingest.uart_source import UartStats, ingest_frame
@@ -36,14 +38,36 @@ class _PostureHook:
         self.model = model
         self.present: bool | None = None
         self.last: dict[str, Any] | None = None
+        self._prev: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        self.motion_mm: float | None = None
+
+    def _tof_motion(self, sample: dict[str, Any]) -> None:
+        """(실험) 격자 움직임 — 센서마다 사람 zone(유효 상태 · 0.15~1.3 m)의 프레임 간 |Δ거리| 중앙값, 큰 쪽을 EMA(α 0.1, 10 Hz ≈ 1 s).
+        자세 서비스가 같은 값을 /api/state 에 낼 수 있다는 가정. mmwave.still_drowsy_and 의 "ToF 정지" 입력."""
+        diffs = []
+        for idx, f in (sample.get("sensors") or {}).items():
+            d = np.asarray(f["distance_mm"], dtype=float)
+            ok = np.isin(np.asarray(f["status"]), (5, 6, 9, 10)) & (d > 150) & (d < 1300)
+            prev = self._prev.get(idx)
+            if prev is not None:
+                both = ok & prev[1]
+                if int(both.sum()) >= 4:
+                    diffs.append(float(np.median(np.abs(d[both] - prev[0][both]))))
+            self._prev[idx] = (d, ok)
+        if diffs:
+            m = max(diffs)
+            self.motion_mm = m if self.motion_mm is None else self.motion_mm + 0.1 * (m - self.motion_mm)
 
     def update(self, sample: dict[str, Any], now: float) -> dict[str, Any] | None:
         if self.model is None:
             return None
+        self._tof_motion(sample)
         try:
             v = self.model.update(sample, now, present=self.present)
         except TypeError:
             v = self.model.update(sample, now)
+        if v is not None and self.motion_mm is not None:
+            v = dict(v, tof_motion_mm=round(self.motion_mm, 1))
         self.last = v
         return v
 
@@ -52,10 +76,17 @@ class HubBridge:
     def __init__(self, *, posture_model=None, fsm_config: str | None = None, ingest_cfg: dict | None = None,
                  control_cfg: dict | None = None, esm_log_path: str | None = None, t0: float = 0.0, node: str = "sim",
                  personalize_cfg: dict | None = None, personalize_policy_path: str | None = None,
-                 personalize_log_path: str | None = None):
+                 personalize_log_path: str | None = None, learning_cfg: dict | None = None, fsm_set: list[str] | None = None):
         self.cache = SensorCache()
         self.out = io.StringIO()
         fsm_cfg = load_config(fsm_config) if fsm_config else load_config()
+        for item in fsm_set or []:                     # --fsm-set a.b=값 (실험) — LiveHub 를 만들기 전에 덮어쓴다
+            key, _, raw = str(item).partition("=")
+            *path, leaf = key.strip().split(".")
+            node = fsm_cfg
+            for k in path:
+                node = node.setdefault(k, {})
+            node[leaf] = yaml.safe_load(raw)
         ingest = ingest_cfg or load_ingest_config()
         control = dict(control_cfg or load_control_config())
         if esm_log_path:
@@ -65,6 +96,8 @@ class HubBridge:
         if personalize_cfg is not None:       # fork/feat/personalize-policy 의 LiveHub 만 받는다(없으면 기록 없이 돈다)
             kw = {"personalize_cfg": personalize_cfg, "personalize_policy_path": personalize_policy_path,
                   "personalize_log_path": personalize_log_path}
+        if learning_cfg is not None:          # 반응 학습(feat/reaction-ai) — 각본·명령이 주면 그 설정, 아니면 hub 기본(꺼짐)
+            kw["learning_cfg"] = learning_cfg
         try:
             self.hub = LiveHub(self.cache, fsm_cfg=fsm_cfg, ingest_cfg=ingest, control_cfg=control, out=self.out, **kw)
         except TypeError:
@@ -139,6 +172,10 @@ class HubBridge:
         ts_ms = int(round(t * 1000)) & 0xFFFFFFFF
         ingest_frame(self.cache, Frame(type=TYPE_MMWAVE, seq=self.seq["mmwave"], ts_ms=ts_ms,
                                        payload=encode_payload(TYPE_MMWAVE, data)), self.stats, received=t, node=self.node)
+        # (시뮬 전용) 펌웨어 DrowsyDetector 내부 증거 — 0x20 에 없는 필드. "증거 비트를 0x20 에 싣는다"는 제안을 흉내 낸다
+        extra = {k: data[k] for k in ("hr_down", "hr_drop", "fw_still", "resp_lost_ev") if k in data}
+        if extra and self.cache.mmwave is not None:
+            self.cache.mmwave.data.update(extra)
 
     def feed_env_uart(self, data: dict[str, Any], t: float) -> None:
         """ESP32 환경 센서(SCD41·DHT22·BH1750) → UART 0x10 payload → ingest_frame → cache.env (실기와 같은 디코더·valid 비트)."""
@@ -156,11 +193,13 @@ class HubBridge:
                 "seq": self.seq["env"], "data": data}
         route_mqtt_message(self.cache, f"deskmate/sensor/env/{self.node}", json.dumps(body).encode("utf-8"), t)
 
-    def feed_keystroke(self, typing: bool, keys: tuple[float, float, float], t: float, rnd) -> None:
+    def feed_keystroke(self, typing: bool, keys: tuple[float, float, float], t: float, rnd, *,
+                       flight_ms: float = 150.0, flight_jitter: float = 0.15) -> None:
+        """flight_ms = 이 사람이 지금 치는 키 사이 시간(하네스가 평소 속도 × 피로로 느려짐을 넘긴다). 기본은 이전 동작(150 ms ±15 %)."""
         idle, cv, corr = keys
         j = lambda v, r=0.15: round(v * (1 + rnd.uniform(-r, r)), 3)  # noqa: E731
         if typing:
-            flight = j(150.0)
+            flight = j(float(flight_ms), flight_jitter)
             data = {"window_s": 60, "dwell_mean_ms": j(92.0), "dwell_std_ms": j(21.0), "flight_mean_ms": flight,
                     "flight_std_ms": round(flight * cv, 2), "idle_ratio": min(1.0, j(idle)),
                     "correction_rate": round(min(1.0, j(corr)), 4), "typing_active": True, "mouse_active": True,
@@ -171,6 +210,13 @@ class HubBridge:
                     "input_active": False, "flight_cv": 0, "mouse_event_rate": 0}
         payload = json.dumps({"ts": round(t, 3), "node": "pc-collector", **data}).encode("utf-8")
         route_mqtt_message(self.cache, "deskmate/sensor/keystroke", payload, t)
+
+    def feed_fatigue_label(self, data: dict[str, Any], t: float) -> None:
+        """Pi 5 피로 기록 앱의 KSS 응답(deskmate/fatigue/label, docs/mqtt-topics.md 모양) → hub cache.fatigue_label."""
+        self.seq["label"] = self.seq.get("label", 0) + 1
+        body = {"schema_version": "1.0", "ts": round(t, 3), "node": "display-fatigue", "boot_id": "fatigue-sim",
+                "seq": self.seq["label"], "data": data}
+        route_mqtt_message(self.cache, TOPIC_FATIGUE_LABEL, json.dumps(body).encode("utf-8"), t)
 
     def feed_weather(self, weather: dict[str, Any], t: float) -> None:
         """deskmate/sensor/weather(retain, Pi 5 앱) 모사. personalize 만 읽는다(FSM 입력 아님)."""
@@ -212,6 +258,8 @@ class HubBridge:
             "pending_request": (self.hub.pending_request or {}).get("data", {}).get("request_id"),
             "personalize": summary.get("personalize"),
             "asked_by_policy": "personalize:ask" in (d.get("reasons") or []),
+            "still_drowsy": getattr(self.hub.tracker, "sd_debug", None),     # (실험) ToF 정지 ∧ mmWave 졸음 증거
+            "learning": summary.get("learning"),
         }
         # 개입 이벤트: ACTION_* 에 새로 들어온 tick. auto 는 실행 후 알림(질문 없음), suggest 는 카드(request), none 은 로그만.
         events: list[dict[str, Any]] = []
@@ -231,6 +279,10 @@ class HubBridge:
         for a in info["actions"]:
             if a in ("wake_alert", "posture_nudge", "cool_down", "heart_alert"):
                 events.append({"kind": f"guard_{a}", "state": state, "gate": info["gate"], "cause": info["cause"]})
+        for req in info["requests"]:            # 반응 학습의 확인 카드("지금 피곤하세요?") — FSM 개입이 아니다
+            if req.get("kind") == "checkin_suggest":
+                events.append({"kind": "checkin_suggest", "state": state, "gate": "suggest", "request_id": req.get("request_id"),
+                               "expires_in_s": req.get("expires_in_s"), "p_model": req.get("p_model"), "c_fatigue": info["c_fatigue"]})
         info["events"] = events
         self.prev_state = prev
         self.last_tick = info

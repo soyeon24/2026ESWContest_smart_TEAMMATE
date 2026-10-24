@@ -35,6 +35,34 @@ arm_channels:
   break_short:       {auto: [screen_card], suggest: [screen_card], accept: [screen_notice, lamp_warm]}
   break_long:        {auto: [screen_card], suggest: [screen_card], accept: [screen_notice, lamp_warm]}
   sleep_suggest:     {auto: [screen_card, lamp_warm], suggest: [screen_card, lamp_warm], accept: [screen_notice, lamp_off]}
+  screen_bright:     {auto: [screen_bright], suggest: [screen_card], accept: [screen_bright]}
+  purifier_boost:    {auto: [purifier], suggest: [screen_card], accept: [purifier]}
+  music_upbeat:      {auto: [music_upbeat], suggest: [screen_card], accept: [music_upbeat]}
+  white_noise:       {auto: [white_noise], suggest: [screen_card], accept: [white_noise]}
+  lamp_daylight:     {auto: [lamp_neutral], suggest: [screen_card], accept: [lamp_neutral]}
+  lamp_cool_blue:    {auto: [lamp_cool], suggest: [screen_card], accept: [lamp_cool]}
+  lamp_warm_amber:   {auto: [lamp_warm], suggest: [screen_card], accept: [lamp_warm]}
+# life_sim learn --learn-outputs(정책 profile persist)에서만 hub personalize arm 에 더하는 선택지 — hub 기본 설정(personalize.yaml)은
+# 그대로 둔다(10-24 반응학습 v11, 사용자: 출력 주변기기 + 장치 화면 밝기까지). 기기 명령 없이 채널만: 화면 밝기는 Pi 5 표시 밝기
+# (실기 명령 미정), 공기청정기는 실기 ThinQ 가 읽기 전용이라 시뮬에서만 세기를 바꾼다.
+policy_extra_arms:
+  arms:
+    - {id: screen_bright, label_ko: 화면 밝게, causes: [posture, cognitive], channel: display, auto: true}
+    - {id: purifier_boost, label_ko: 공기청정기 세게, causes: [environment], channel: air, auto: true}
+    - {id: music_upbeat, label_ko: 신나는 음악, causes: [cognitive, posture], channel: sound, auto: true}   # 스피커(KLZS-L1) — 조용한 시간엔 빠짐
+    - {id: white_noise, label_ko: 백색소음, causes: [cognitive, environment], channel: sound, auto: true}   # 스피커 — 깨우기보다 집중용
+    # 무드등 색(10-24 사용자 "색상 적절한걸로") — 공부용 자연광 · 각성용 청백색 · 휴식·밤용 주황. 밝기 arm(light_*)과 따로 색을 고른다
+    - {id: lamp_daylight, label_ko: 무드등 자연광(공부), causes: [cognitive, environment], channel: lamp, auto: true}
+    - {id: lamp_cool_blue, label_ko: 무드등 청백색(각성), causes: [cognitive, posture], channel: lamp, auto: true}
+    - {id: lamp_warm_amber, label_ko: 무드등 주황(휴식·밤), causes: [cognitive], channel: lamp, auto: true}
+  prior:
+    screen_bright:  {accept: {bias: 0.1, dark: 0.3}, effect: {bias: 0.1, drowsy: 0.2}}
+    purifier_boost: {accept: {bias: 0.1}, effect: {bias: 0.0}}
+    music_upbeat:   {accept: {bias: 0.0, drowsy: 0.3}, effect: {bias: 0.1, drowsy: 0.3}}
+    white_noise:    {accept: {bias: 0.1}, effect: {bias: 0.0}}
+    lamp_daylight:  {accept: {bias: 0.2, dark: 0.4}, effect: {bias: 0.1, dark: 0.3}}
+    lamp_cool_blue: {accept: {bias: 0.1, after_bedtime: -0.5}, effect: {bias: 0.2, drowsy: 0.3}}
+    lamp_warm_amber: {accept: {bias: 0.0, after_bedtime: 0.5}, effect: {bias: 0.0, after_bedtime: 0.2}}
 # 카드 응답 확률 표(reaction.yaml card:)를 arm 별로 고를 때 쓰는 이름
 arm_card_table:
   ventilate_suggest: vent_suggest
@@ -134,6 +162,16 @@ purifier_control:
   bypass_pm: 76             # 매우나쁨이면 상한 무시
   away_boost_after_s: 300   # 자리를 이만큼 비우면 한 단계 더
 
+# Pi 5 피로 기록 앱(PR #58)의 KSS 질문 모사(실험, 기본 꺼짐 — self_report.py). 응답은 hub 의 반응 학습 라벨
+# (learning.yaml kss_label)이고 FSM 규칙에는 들어가지 않는다. life_sim learn 은 두 arm 모두 켠다(사람에게 효과 없음, 난수 따로).
+# KSS = round(1 + 10·S)(각본값), noise_p 확률로 ±1, delay_s 범위로 늦게 답함, 질문 순간 자리 비움·졸음이면 놓침.
+self_report:
+  enabled: false
+  period_s: 900
+  noise_p: 0.3
+  delay_s: [5, 60]
+  miss_after_s: 120         # 놓친 질문은 이만큼 뒤 prompt_missed 로 알린다(앱 질문 창 가정값)
+
 # CO₂ 환기 타이밍 규칙(ventilation.py) — FSM 밖, CO₂ 가 높고 깨어 책상에 있을 때 창문 환기 카드를 먼저 띄운다. 전부 가정값.
 # 기본 꺼짐(실험: life_sim run --vent-rule). FSM 의 환경 개입은 피로 확정 뒤라 사람이 이미 졸고 있을 때 카드가 떴다(v8, 10-23).
 vent_control:
@@ -146,3 +184,13 @@ vent_control:
   focus_defer_s: 600        # 몰입(FOCUS_*) 중이면 끝나기를 최대 이만큼 기다린다
   retry_s: 1200             # 카드 무응답이면 이 뒤에 다시
   reject_retry_s: 2400      # 거절이면 더 오래 쉰다
+
+# 키 입력 모사(hub_bridge.feed_keystroke) — 타이핑 속도(flight_mean_ms). 전부 가정값.
+# 사람마다 평소 키 사이 시간 base_flight_ms(시드로 한 번), 피곤해 리듬이 흐트러질수록(flight_cv 가 cv_ref 위로) 느려진다:
+# flight = base × (1 + slow_per_cv × max(0, flight_cv − cv_ref)). 잠재 피로(--fatigue)가 flight_cv 를 올리면 속도도 따라 느려진다.
+# 1 분 창 평균이라 초마다 흔들림은 작게(flight_jitter). 이전 동작은 모두 150 ms ±15 %.
+keystroke:
+  base_flight_ms: [120, 200]
+  cv_ref: 0.30
+  slow_per_cv: 1.2
+  flight_jitter: 0.04

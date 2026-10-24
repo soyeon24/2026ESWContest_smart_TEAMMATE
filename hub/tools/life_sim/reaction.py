@@ -11,6 +11,7 @@ guard_*)와 hub 가 낸 기기 명령. 출력은 시각이 붙은 `Reaction` 목
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +35,34 @@ class ReactionModel:
         self.history: list[dict[str, Any]] = []
         self.wakes = 0
         self.escalation = 0          # 같은 졸음 에피소드 안에서 몇 번째 개입인지
+        self.pref: dict[str, Any] = {}
+        self.dislikes: set[str] = set()   # 이 사람이 싫어하는 출력(set_prefs) — 비어 있으면 이전과 같다
+
+    def set_prefs(self, prefs: dict[str, Any] | None, rnd: random.Random) -> list[str]:
+        """life_sim learn --person-prefs: 사람마다 싫어하는 출력(음악·음성·알림음·차가운 조명·강풍·화면 밝기)을 뽑는다.
+        싫어하는 출력은 깨움·자세 복귀 효과가 dislike_wake_mult 배, 자동으로 나오면 undo_p 로 끈다(되돌리기). 자기 난수로 뽑는다."""
+        self.pref = dict(prefs or {})
+        if self.pref.get("dislikes") is not None:                     # 시연 페르소나: 정해진 호불호
+            self.dislikes = set(self.pref["dislikes"])
+        else:
+            self.dislikes = {ch for ch, p in sorted((self.pref.get("dislike_p") or {}).items()) if rnd.random() < float(p)}
+        return sorted(self.dislikes)
+
+    def _disliked_now(self, now: float) -> set[str]:
+        """싫어하는 출력 + 밤(night_hours)이면 눈부신 출력(night_dislikes)."""
+        lo, hi = self.pref.get("night_hours") or (22, 6)
+        h = time.localtime(now).tm_hour
+        night = (h >= int(lo) or h < int(hi)) if int(lo) > int(hi) else int(lo) <= h < int(hi)
+        return self.dislikes | (set(self.pref.get("night_dislikes") or ()) if night and self.pref.get("enabled") else set())
+
+    def _dislike_undo(self, channels: list[str], now: float, origin: str) -> list[Reaction]:
+        disliked = self._disliked_now(now)
+        hit = sorted(c for c in channels if c in disliked)
+        if not hit or self.rnd.random() >= float(self.pref.get("undo_p", 0.5)):
+            return []
+        self._note(now, origin, "undo(disliked)", hit)
+        return [Reaction(now + self._u((self.c.get("undo") or {}).get("delay_s"), (5.0, 50.0)), "feedback",
+                         {"verdict": "reject", "request_id": None, "why": "undo", "disliked": hit}, source=origin)]
 
     # ---------------------------------------------------------------- 도우미
     def _u(self, rng_spec, default=(0.0, 0.0)) -> float:
@@ -46,7 +75,10 @@ class ReactionModel:
     def _combined(self, table: str, channels: list[str]) -> float:
         miss = 1.0
         for ch in channels:
-            miss *= 1.0 - min(1.0, max(0.0, self._p(table, ch)))
+            p = min(1.0, max(0.0, self._p(table, ch)))
+            if ch in self.dislikes:
+                p *= float(self.pref.get("dislike_wake_mult", 0.5))
+            miss *= 1.0 - p
         return 1.0 - miss
 
     def channels_for(self, event_kind: str) -> list[str]:
@@ -67,6 +99,8 @@ class ReactionModel:
             self._note(now, kind, "skipped(gate none)", [])
             return [], out
         out += self._deliver(chans, now, ev, person_kind=person_kind, focus=focus, origin=kind)
+        if self.pref.get("enabled") and (ev.get("gate") == "auto" or kind.endswith("_auto")):
+            out += self._dislike_undo(chans, now, kind)
         if kind in ("break_auto", "rest_forced"):
             p = self._p("rest", "go_away_p", 0.0)
             if self.rnd.random() < p:
@@ -85,6 +119,8 @@ class ReactionModel:
                 p += self._p("noise_reject", ch, 0.0)
             if focus:
                 p += self._p("undo", "focus_disturb_add", 0.0)
+            if any(ch in self.dislikes for ch in channels):
+                p += float(self.pref.get("undo_p", 0.5))
             if self.rnd.random() < min(1.0, p):
                 out.append(Reaction(now + self._u((self.c.get("undo") or {}).get("delay_s"), (5.0, 50.0)), "feedback",
                                     {"verdict": "reject", "request_id": None, "why": "undo"}, source="env_auto"))

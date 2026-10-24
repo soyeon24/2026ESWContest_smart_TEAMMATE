@@ -22,6 +22,31 @@ PERSONAS = {   # 확률, 활동(종류, 타이핑, 비중)
     "developer": (0.35, [("upright", True, 0.60), ("mouse_work", True, 0.30), ("reading", False, 0.10)]),
     "examinee": (0.25, [("writing", False, 0.50), ("reading", False, 0.35), ("upright", True, 0.15)]),
 }
+# 무작위 뽑기(v9 각본)는 위 세 유형만 — 뽑기 순서·결과를 그대로 두려고 아래 역할은 persona= 로만 고른다(life_sim learn --roles cycle).
+EXTRA_ROLES = {  # 활동, 시작 시각대(없으면 START_BANDS)
+    "designer": ([("mouse_work", True, 0.60), ("writing", False, 0.15), ("upright", True, 0.15), ("reading", False, 0.10)], None),
+    "writer": ([("upright", True, 0.75), ("reading", False, 0.15), ("writing", False, 0.10)],
+               [((20, 0), (23, 0), 0.70), ((14, 0), (17, 0), 0.30)]),          # 밤에 몰아 쓰는 작가·문서 작업
+    "researcher": ([("reading", False, 0.50), ("upright", True, 0.30), ("writing", False, 0.20)],
+                   [((8, 0), (10, 30), 0.60), ((13, 0), (15, 0), 0.40)]),       # 아침형 논문 읽기·메모
+}
+ROLES = ("student", "developer", "examinee", "designer", "writer", "researcher")
+# 공통모델용 '선호가 별로 없는 사람'(10-24 사용자) — 활동은 고르게, 반응은 기본값(reaction.yaml personas.neutral = {})
+EXTRA_ROLES["neutral"] = ([("upright", True, 0.40), ("mouse_work", True, 0.20), ("reading", False, 0.20), ("writing", False, 0.20)],
+                          None)
+# 시연용 개인화 프로필(10-24 사용자): 책으로 공부하는 수험생(늘 피곤) · 컴퓨터를 주로 쓰는 대학생(휴대폰·딴짓, 자세가 가장 나쁨)
+EXTRA_ROLES["book_examinee"] = ([("writing", False, 0.50), ("reading", False, 0.40), ("chin_rest", False, 0.10)],
+                                [((8, 0), (10, 0), 0.35), ((13, 0), (15, 0), 0.25), ((19, 0), (22, 0), 0.40)])
+# 역할마다 hub 설정(프로필): 책으로 문제 푸는 수험생은 앞으로 숙인 필기 자세가 평소 자세라 자세 증거로 덜 본다(10-24 사용자).
+# 키 입력은 PC 를 안 쓰니 비PC 맥락에서 FSM 가중치가 이미 0 이다(fsm.yaml weights npc keystroke 0).
+# 10-24 책 공부 ToF 점검(tof-sim_ubai_results_1024/book_study, 시뮬 1회분): 지금 GRU 는 책 읽기를 forward_head 로(91 %), 책 위
+# 필기를 chin_rest 로(99 %) 잘못 읽는다 → 책 공부 보강 학습 전까지 수험생 프로필에선 둘의 증거도 낮춘다(진짜 턱괴기는 반응 학습이 다시 올린다).
+ROLE_INGEST_SET = {"book_examinee": ["tof.posture_phi.lean_forward=0.0", "tof.posture_delta.lean_forward=0.0",
+                                     "tof.posture_phi.forward_head=0.1", "tof.posture_delta.forward_head=0.05",
+                                     "tof.posture_phi.chin_rest=0.3", "tof.posture_delta.chin_rest=0.3"]}
+EXTRA_ROLES["pc_student"] = ([("upright", True, 0.22), ("turtle", True, 0.20), ("mouse_work", True, 0.15), ("chin_rest", False, 0.10),
+                              ("elbows", True, 0.08), ("recline", False, 0.10), ("look_aside", False, 0.08), ("phone_call", False, 0.07)],
+                             [((13, 0), (16, 0), 0.40), ((20, 0), (23, 30), 0.60)])
 START_BANDS = [((9, 0), (11, 0), 0.25), ((13, 0), (15, 30), 0.40), ((19, 0), (22, 30), 0.35)]
 SEASON_OF_MONTH = {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
                    6: "summer", 7: "summer", 8: "summer", 9: "autumn", 10: "autumn", 11: "autumn"}
@@ -38,11 +63,13 @@ def _choice(rnd: random.Random, items: list[tuple]) -> tuple:
     return items[-1]
 
 
-def make_day(seed: int, *, desk_hours: tuple[float, float] = (2.0, 3.5), vent_rule_p: float = 0.5) -> dict[str, Any]:
+def make_day(seed: int, *, desk_hours: tuple[float, float] = (2.0, 3.5), vent_rule_p: float = 0.5,
+             persona: str | None = None) -> dict[str, Any]:
     rnd = random.Random(seed * 7919 + 17)
-    persona = _choice(rnd, [(name, p) for name, (p, _) in PERSONAS.items()])[0]
-    acts = PERSONAS[persona][1]
-    (h0, m0), (h1, m1), _ = _choice(rnd, START_BANDS)
+    drawn = _choice(rnd, [(name, p) for name, (p, _) in PERSONAS.items()])[0]
+    persona = persona or drawn                        # learn: 같은 사람이면 날마다 같은 유형(뽑기 순서는 그대로)
+    acts, bands = (PERSONAS[persona][1], None) if persona in PERSONAS else EXTRA_ROLES[persona]
+    (h0, m0), (h1, m1), _ = _choice(rnd, bands or START_BANDS)                # 난수 한 번 — 시작 시각대만 역할마다
     start_min = rnd.randint(h0 * 60 + m0, h1 * 60 + m1)
     # 시드마다 다른 날(97 은 365 와 서로소 → 시드 1~365 가 한 해에 고르게 퍼지고 겹치지 않음)
     date = _dt.date(2026 + seed // 365, 1, 1) + _dt.timedelta(days=(seed * 97) % 365)

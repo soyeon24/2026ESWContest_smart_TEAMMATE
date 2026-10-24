@@ -32,6 +32,12 @@ except ImportError:  # pragma: no cover
     InterventionPolicy = None  # type: ignore[assignment,misc]
     load_personalize_config = None  # type: ignore[assignment]
 
+try:  # 사용자 반응으로 배우는 피로 판단(learning/reaction.py). 못 읽으면 FSM 그대로 돈다.
+    from .learning import ReactionLearner, load_learning_config
+except ImportError:  # pragma: no cover
+    ReactionLearner = None  # type: ignore[assignment,misc]
+    load_learning_config = None  # type: ignore[assignment]
+
 
 def frame_to_dict(frame: SensorFrame) -> dict[str, Any]:
     """replay.iter_frames 가 그대로 읽는 형식."""
@@ -60,6 +66,7 @@ class LiveHub:
         personalize_cfg: dict[str, Any] | None = None,
         personalize_log_path: str | None = None,
         personalize_policy_path: str | None = None,
+        learning_cfg: dict[str, Any] | None = None,
         frame_log: TextIO | None = None,
         state_log: TextIO | None = None,
         out: TextIO = sys.stdout,
@@ -68,6 +75,11 @@ class LiveHub:
         self.fsm_cfg = fsm_cfg or load_config()
         self.ingest_cfg = ingest_cfg or load_ingest_config()
         self.engine = FSMEngine(self.fsm_cfg)
+        # 반응 학습(learning.yaml enabled): FSM 점수를 배운 모델로 보정한다 — 꺼져 있으면 learner 가 없다
+        lcfg = learning_cfg if learning_cfg is not None else (load_learning_config() if load_learning_config else {})
+        self.learner = ReactionLearner(lcfg, self.fsm_cfg) if (ReactionLearner is not None and lcfg.get("enabled")) else None
+        if self.learner is not None:
+            self.engine.score_adjust = self.learner.adjust
         self.tracker = SessionTracker(
             elapsed_reset_on_rest=bool((self.ingest_cfg.get("elapsed") or {}).get("reset_on_rest", False)))
         self.privacy_cfg = privacy_cfg if privacy_cfg is not None else load_privacy_config()
@@ -153,6 +165,11 @@ class LiveHub:
                 verdict = feedback.get("verdict")
                 # request_id 가 오면 현재 질문과 맞는지 본다. 없거나 'atlas-display'(HTTP 시절 기본값)면 그대로 받는다.
                 rid = feedback.get("request_id")
+                if self.learner is not None:
+                    if self.learner.owns(rid):            # 확인 카드 응답은 학습 라벨로만 쓴다(FSM·제어에는 안 감)
+                        self.learner.on_feedback(verdict, rid, now)
+                        continue
+                    self.learner.on_feedback(verdict, rid, now)
                 current = self.pending_request["data"]["request_id"] if self.pending_request else None
                 if verdict not in ("accept", "reject", "correct", "timeout"):
                     print(f"[esm] 알 수 없는 verdict: {verdict!r}", file=self.out)
@@ -237,6 +254,16 @@ class LiveHub:
             snap = self.tracker.baseline.snapshot()
             summary["baseline"] = {"calibrating": snap["calibrating"], "ready": sorted(snap["session"]),
                                    "seeded": sorted({m for b in snap["buckets"].values() for m in b})}
+        if self.learner is not None:
+            self.learner.after_tick(result, prev_state, frame, now)
+            lab = getattr(view, "fatigue_label", None)      # 피로 기록 앱 KSS 응답 → 라벨(새 응답일 때만)
+            if lab is not None and lab.data.get("kss") is not None:
+                self.learner.on_self_report(float(lab.data["kss"]), float(lab.ts), now)
+            miss = getattr(view, "fatigue_missed", None)     # 앱 질문 무응답 → 자리에 있고 타이핑 안 하면 졸림 라벨
+            if miss is not None:
+                self.learner.on_prompt_missed(float(miss.data["prompt_ts"]), now, present=bool(frame.present),
+                                              typing=bool(frame.get("keystroke").available))
+            summary["learning"] = self.learner.snapshot()
         if self.privacy.enabled:
             summary["privacy"] = self.privacy.snapshot()
         if self.personalization_cfg.get("enabled"):
@@ -256,6 +283,15 @@ class LiveHub:
         if (self.personalize_recorder is not None and self.personalize_recorder.last_episode_id
                 and self.pending_request is not None):
             self.personalize_recorder.link_request(self.pending_request["data"]["request_id"])
+        if self.learner is not None:
+            if self.pending_request is not None and self.pending_request["ts"] == now:
+                self.learner.link_request(self.pending_request["data"]["request_id"])
+            probe = self.learner.maybe_checkin(result, frame, now, busy=self.pending_request is not None,
+                                               request_id=f"{self.boot_id}-{self.seq}-checkin")
+            if probe is not None:
+                self.seq += 1
+                self.publish_request({"schema_version": "1.0", "ts": now, "node": "hub", "boot_id": self.boot_id,
+                                      "seq": self.seq, "data": probe})
 
         if self.frame_log:
             self.frame_log.write(json.dumps(frame_to_dict(frame), ensure_ascii=False) + "\n"); self.frame_log.flush()

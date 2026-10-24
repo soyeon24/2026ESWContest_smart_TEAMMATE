@@ -159,3 +159,18 @@ def test_stage2_metrics_reads_observe_mode_from_state_log(tmp_path):
     assert m["ticks"] == 5 and m["status"] == {"warming_up": 1, "predicted": 4}
     assert m["truth_agreement"] == 0.75 and m["inference_ms"]["p50"] == 0.5
     assert m["labels"] == {"focus": 2, "fatigue": 1, "rest": 1, "idle": 0}
+
+
+def test_daygen_extra_roles_do_not_change_drawn_days():
+    """learn --roles cycle 의 여섯 역할: 새 역할은 persona= 로만 고르고, 무작위 뽑기(v9 각본)는 세 유형 그대로다."""
+    from tools.life_sim.daygen import EXTRA_ROLES, PERSONAS, ROLES, make_day
+    assert set(ROLES) <= set(PERSONAS) | set(EXTRA_ROLES) and len(ROLES) == 6
+    assert {"neutral", "book_examinee", "pc_student"} <= set(EXTRA_ROLES) - set(ROLES)    # 공통모델·시연용은 순환에 안 넣음
+    assert {make_day(s)["persona"] for s in range(1, 200)} <= set(PERSONAS)
+    from tools.life_sim.scenario import load_defaults
+    reaction_cfg = load_defaults()[0]
+    for role in list(ROLES) + ["neutral", "book_examinee", "pc_student"]:
+        day = make_day(1001, persona=role)
+        assert day["persona"] == role and role in reaction_cfg["personas"]
+    writer = [int(make_day(s, persona="writer")["start_clock"][:2]) for s in range(1, 60)]
+    assert sum(h >= 20 for h in writer) > len(writer) / 2                    # 밤 작업 작가는 대부분 저녁 8시 넘어 시작

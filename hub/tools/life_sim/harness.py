@@ -36,6 +36,7 @@ from tools.posture_sim.source import TofsimSource, where_now as _where_now
 from .env_sensors import EnvSensors
 from .fatigue import FatigueModel
 from .purifier import PurifierController, purifier_metrics
+from .self_report import SelfReportApp
 from .ventilation import VentRule, vent_metrics
 from .reaction import Reaction, ReactionModel
 from .scenario import fsm_config_path
@@ -110,9 +111,24 @@ def _setup_hub_policy(scenario: dict[str, Any], profile: str, run_dir: str, seed
     policy_path = os.path.join(run_dir, "policy.json")
     log_path = os.path.join(run_dir, "personalize.jsonl")
     for p in (policy_path, log_path):
-        if os.path.exists(p):
+        if os.path.exists(p) and p != pol.get("state_path"):   # persist 상태는 남긴다
             os.remove(p)
     info: dict[str, Any] = {"engine": "hub", "profile": profile, "profile_id": cfg["profile_id"], "algorithm": cfg["bandit"].get("algorithm")}
+    if profile == "persist":
+        # life_sim learn: 한 사람의 개입 방식 정책(어떤 기기로)을 날마다 이어 배운다 — 전역 prior 에서 시작, state_path 를 지우지 않는다.
+        # 화면 밝기·공기청정기 선택지는 여기서만 더한다(devices.yaml policy_extra_arms).
+        from .common import add_extra_arms
+        add_extra_arms(cfg, scenario["devices_resolved"].get("policy_extra_arms"))
+        for item in pol.get("set") or []:                       # learn --policy-set a.b=값
+            key, _, raw = str(item).partition("=")
+            *path, leaf = key.strip().split(".")
+            node = cfg
+            for k in path:
+                node = node.setdefault(k, {})
+            node[leaf] = yaml.safe_load(raw)
+        state = str(pol.get("state_path") or policy_path)
+        info.update(state_path=state, resumed=os.path.exists(state))
+        return cfg, state, log_path, info
     if profile == "synth":
         from deskmate_hub.personalize.synth import PERSONAS, SynthGenerator
         pid = pol.get("synth_persona") or (scenario["devices_resolved"].get("synth_persona") or {}).get(scenario["persona"]) \
@@ -190,7 +206,8 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
     rules = RuleFeatures((dev.get("rule_features") or {}), fps=fps)
     _truth: dict[str, str] = {}
     if posture == "oracle" or (source is not None and model_path is None):
-        model = OraclePosture(lambda: getattr(src, "last_label", None) or _truth.get("label", "upright"), seed=seed)
+        model = OraclePosture(lambda: getattr(src, "last_label", None) or _truth.get("label", "upright"), seed=seed,
+                              noise_p=float(scenario["hub"].get("oracle_noise", 0.0)))   # learn --oracle-noise: GRU 깜빡임 흉내
     else:
         from tools.posture_sim.posture_model import GruPosture
         mcfg = dev.get("posture_model") or {}
@@ -213,9 +230,11 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
         for k in path:
             node = node.setdefault(k, {})
         node[leaf] = yaml.safe_load(raw)
+    sr_cfg = dev.get("self_report") or {}
     hub = HubBridge(posture_model=model, fsm_config=fsm_config_path(scenario["hub"].get("fsm_config")), ingest_cfg=ingest_cfg,
                     esm_log_path=os.path.join(run_dir, "esm.jsonl"), t0=t0,
-                    personalize_cfg=pcfg, personalize_policy_path=policy_path, personalize_log_path=plog_path)
+                    personalize_cfg=pcfg, personalize_policy_path=policy_path, personalize_log_path=plog_path,
+                    learning_cfg=scenario["hub"].get("learning"), fsm_set=list(scenario["hub"].get("fsm_set") or []))
     hub_policy = getattr(hub.hub, "personalize_policy", None)
     if hub_policy is not None:
         hub_policy.rng = np.random.default_rng(seed + 11)       # Thompson 샘플도 시드로 고정(재현)
@@ -224,14 +243,29 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
     world = DeviceWorld(dev, scenario["env"], scenario["weather"], t0, seed=seed)
     purifier = PurifierController(dev.get("purifier_control") or {}, seed=seed, t0=t0)
     vent_rule = VentRule(dev.get("vent_control") or {}, t0=t0)
-    mmw = MmwaveSensor(dev.get("mmwave") or {}, seed=seed)
+    _kb = (dev.get("keystroke") or {}).get("base_flight_ms")                 # 이 사람의 평소 키 사이 시간(시드로 한 번)
+    base_flight_ms = (random.Random(int(scenario.get("person_seed", seed)) + 53).uniform(float(_kb[0]), float(_kb[1])) if isinstance(_kb, (list, tuple))
+                      else float(_kb or 150.0))
+    mmw = MmwaveSensor(dev.get("mmwave") or {}, seed=seed, person_seed=scenario.get("person_seed"))
     envs = EnvSensors(dev.get("env_sensors") or {}, seed=seed)
     env_meas: dict[str, Any] = {}
     channels_cfg = dev.get("channels") or {}
     arm_channels = dev.get("arm_channels") or {}
     arm_card_table = dev.get("arm_card_table") or {}
     reaction = ReactionModel(scenario["reaction_resolved"], channels_cfg, seed=seed + 3)
-    fat = FatigueModel(scenario["reaction_resolved"].get("fatigue") or {}, seed=seed, t0=t0)   # 잠재 피로(기본 꺼짐)
+    rprefs = dict(scenario["reaction_resolved"].get("prefs") or {})
+    if rprefs.get("dislikes") is not None:
+        rprefs["enabled"] = True                                       # 시연 페르소나(정해진 호불호)
+    dislikes = (reaction.set_prefs(rprefs, random.Random(int(scenario.get("person_seed", seed)) * 17 + 3))
+                if rprefs.get("enabled") else [])                    # 같은 사람이면 날마다 같은 호불호(+밤 눈부심)
+    # 잠재 피로(기본 꺼짐). person_seed 가 있으면 사람마다 정해진 피로 계수를 날마다 같게 쓴다(learn: 여러 날 같은 사람)
+    fat = FatigueModel(scenario["reaction_resolved"].get("fatigue") or {}, seed=int(scenario.get("person_seed", seed)), t0=t0)
+    app = SelfReportApp(sr_cfg, seed=seed, t0=t0, profile_id=f"sim{seed:04d}")               # 피로 기록 앱 KSS 질문(기본 꺼짐)
+    if app.enabled and not fat.enabled:
+        raise ValueError("self_report 는 잠재 피로(--fatigue)가 있어야 답할 수 있다")
+    # 반응 학습 확인 카드의 응답 난수 — 사람 반응(reaction.rnd)과 섞이면 카드 하나가 뒤의 깸·카드 응답을 전부 밀어
+    # FSM arm 과 ai arm 이 α = 0 이어도 달라진다(10-23 learn14). 따로 둔다.
+    ck_rnd = random.Random(seed * 7919 + 29)
     absent_since: float | None = None
     # 2단계 학습용 로그(ml/training/build_dataset.py --logs --truth): hub tick 마다 SensorFrame·state·정답 한 줄씩, 줄 수가 같다
     truth_log = None
@@ -257,6 +291,7 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
     last_tick: dict[str, Any] | None = None
     last_verdict: dict[str, Any] | None = None
     interventions: list[dict[str, Any]] = []
+    checkins: list[dict[str, Any]] = []          # 반응 학습의 확인 카드(개입이 아님)
     second_rows: list[dict[str, Any]] = []
     tick_rows: list[dict[str, Any]] = []
     event_rows: list[dict[str, Any]] = []
@@ -420,6 +455,27 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
             d = simple.decide(ev, now, chans, drowsy_episodes=counters["fatigue"], failed_interventions=counters["escalate"])
             schedule_policy_followups(d, kind, now)
 
+    def checkin(ev: dict[str, Any], now: float) -> None:
+        """반응 학습의 확인 카드("지금 피곤하세요?")에 사람이 답한다 — 화면을 보면 지금 졸림(잠재 피로 S)대로 예/아니요.
+        졸고 있으면 카드를 덜 본다. 개입이 아니라 질문이라 깨우지 않는다. 수치는 reaction.yaml checkin(가정값)."""
+        ccfg = scenario["reaction_resolved"].get("checkin") or {}
+        sleepy = person_kind() in SLEEPY
+        apply_channels(["screen_card"], now)
+        verdict = "none"
+        if ck_rnd.random() < float(ccfg.get("attend_sleepy" if sleepy else "attend_awake", 0.4 if sleepy else 0.9)):
+            S = fat.S if fat.enabled else (0.9 if sleepy else 0.2)
+            p_yes = 1.0 / (1.0 + np.exp(-(S - float(ccfg.get("s50", 0.55))) / float(ccfg.get("width", 0.07))))
+            verdict = "accept" if ck_rnd.random() < p_yes else "reject"
+        lo, hi = ccfg.get("delay_s") or (5.0, 40.0)
+        delay = ck_rnd.uniform(float(lo), float(hi))
+        if verdict != "none" and delay < float(ev.get("expires_in_s") or 120):
+            pending.append(Reaction(now + delay, "feedback", {"verdict": verdict, "request_id": ev.get("request_id"),
+                                                              "event": "checkin_suggest"}, source="checkin"))
+        rec = {"t": now, "kind": "checkin", "request_id": ev.get("request_id"), "p_model": ev.get("p_model"),
+               "answer": verdict, "person_kind": person_kind(), "S": round(fat.S, 3) if fat.enabled else None}
+        checkins.append(rec)
+        emit(rec)
+
     def handle_tick(tk: dict[str, Any], now: float) -> None:
         if tk["entered"] and tk["state"] == "FATIGUE":
             counters["fatigue"] += 1
@@ -430,6 +486,9 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
         w_ticks.write(tk)
         hold_env = False
         for ev in tk["events"]:
+            if ev["kind"] == "checkin_suggest":
+                checkin(ev, now)
+                continue
             arm = ev.get("arm")
             decision = None
             ev2 = dict(ev)
@@ -576,7 +635,14 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
                                        typing=ov["typing"], spec=ov.get("spec"))
                     emit({"t": t, "kind": "reaction", "what": ov["name"], "source": "fatigue", "S": round(fat.S, 3), "override": rec})
                 keys = fat.keys(info.keys)
-            hub.feed_keystroke(info.typing, keys, t, rnd)
+            kcfg_sim = dev.get("keystroke") or {}                         # 타이핑 속도: 평소 × 리듬 흐트러짐만큼 느려짐
+            flight_ms = base_flight_ms * (1.0 + float(kcfg_sim.get("slow_per_cv", 0.0)) * max(0.0, keys[1] - float(kcfg_sim.get("cv_ref", 0.30))))
+            hub.feed_keystroke(info.typing, keys, t, rnd, flight_ms=flight_ms, flight_jitter=float(kcfg_sim.get("flight_jitter", 0.15)))
+            label = app.step(t, S=fat.S if fat.enabled else None, kind=person_kind())
+            if label is not None:
+                hub.feed_fatigue_label(label, t)
+                emit({"t": t, "kind": "self_report", "event": label["event"], "kss": label.get("kss"), "prompt_ts": label["prompt_ts"],
+                      "S": round(fat.S, 3)})
             if sec % int(dev.get("env_sensors", {}).get("uart_period_s", 5)) == 0 or not env_sent:
                 hub.feed_env_uart(env_meas, t)                                 # ESP32 → UART 0x10 (0.2 Hz)
                 env_sent = True
@@ -666,10 +732,15 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
     summary["env_sensors"] = envs.error_stats()
     summary["scene_room"] = world.room_drawn or None
     summary["fatigue"] = fat.summary(second_rows) if fat.enabled else None
+    summary["self_report"] = app.summary()
+    summary["reaction_prefs"] = {"dislikes": dislikes} if rprefs.get("enabled") else None
     summary["stage2"] = _stage2_metrics(run_dir) if stage2 else None
     vcfg = dev.get("vent_control") or {}
     summary["vent_rule"] = vent_metrics(second_rows, vent_rule.log, [e for e in event_rows if e.get("kind") == "feedback"],
                                         on_ppm=float(vcfg.get("on_ppm", 1000))) if vent_rule.enabled else None
+    learner = getattr(hub.hub, "learner", None)
+    summary["reaction_ai"] = _reaction_ai_metrics(second_rows, tick_rows, interventions, checkins, event_rows,
+                                                  learner.snapshot() if learner is not None else None) if fat.enabled else None
     try:
         from .plots import plot_timeline
         plot_timeline(second_rows, tick_rows, event_rows, os.path.join(run_dir, "timeline.png"), title=name,
@@ -685,6 +756,47 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
 
 
 # ---------------------------------------------------------------- 요약
+
+def _reaction_ai_metrics(rows: list[dict[str, Any]], ticks: list[dict[str, Any]], interventions: list[dict[str, Any]],
+                         checkins: list[dict[str, Any]], events: list[dict[str, Any]],
+                         learning: dict[str, Any] | None) -> dict[str, Any]:
+    """정답(잠재 피로) 대비 개입 품질 — FSM 만 vs 반응 학습 비교용.
+    피로 구간 = 정답 truth_class 가 fatigue 인 연속 초(10 s 틈은 이음). 구간마다 시작 → 첫 개입(확인 카드 제외)까지 걸린 시간,
+    구간이 끝날 때(+60 s)까지 개입이 없으면 놓침. 헛개입 = 정답이 focus(깨어 일하는 중)인 때의 개입."""
+    by_t = {int(r["t"]): r.get("truth_class") for r in rows}
+    runs: list[list[float]] = []
+    for r in rows:
+        if r.get("truth_class") != "fatigue":
+            continue
+        if runs and r["t"] - runs[-1][1] <= 10.0:
+            runs[-1][1] = r["t"]
+        else:
+            runs.append([r["t"], r["t"]])
+    iv_t = sorted(iv["t"] for iv in interventions if not iv.get("blocked_by_policy"))
+    lat, missed = [], 0
+    for a, b in runs:
+        first = next((t for t in iv_t if a <= t <= b + 60.0), None)
+        if first is None:
+            missed += 1
+        else:
+            lat.append(first - a)
+    false_iv = sum(1 for t in iv_t if by_t.get(int(t)) == "focus")
+    fb = [e for e in events if e.get("kind") == "feedback" and e.get("event") != "checkin_suggest"]
+    return {
+        "fatigue_min": round(sum(1 for r in rows if r.get("truth_class") == "fatigue") / 60.0, 1),
+        "episodes": len(runs), "missed": missed, "latency_s": [round(x) for x in lat],
+        "latency_median_s": round(sorted(lat)[len(lat) // 2]) if lat else None,
+        "interventions": len(iv_t), "false_interventions": false_iv,
+        "accept": sum(1 for e in fb if e.get("verdict") == "accept"),
+        "reject": sum(1 for e in fb if e.get("verdict") == "reject" and e.get("why") != "undo"),
+        "undo": sum(1 for e in fb if e.get("why") == "undo"),
+        "wakes": sum(1 for e in events if e.get("kind") == "reaction" and e.get("what") == "wake"),
+        "rest_min": round(sum(10 for tk in ticks if tk["state"] == "REST") / 60.0, 1),
+        "checkins": len(checkins), "checkin_yes": sum(1 for c in checkins if c["answer"] == "accept"),
+        "checkin_no": sum(1 for c in checkins if c["answer"] == "reject"),
+        "learning": learning,
+    }
+
 
 def _stage2_metrics(run_dir: str) -> dict[str, Any]:
     """state-hub.jsonl 의 sensor_summary.personalization(관찰 모드 판정)을 모아 상태·추론 시간·정답 일치를 낸다."""

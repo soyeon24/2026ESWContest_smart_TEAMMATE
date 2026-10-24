@@ -72,3 +72,28 @@ def test_bridge_emits_lines_for_every_hub_output(capsys, monkeypatch):
         payload = json.loads(line.split("\t", 1)[1])   # 한 줄 JSON 이어야 C++ 가 그대로 발행할 수 있다
         assert "\n" not in line.split("\t", 1)[1] and isinstance(payload, dict)
     assert json.loads(out[3].split("\t", 1)[1])["data"]["command_id"] == "c9"
+
+
+def test_fatigue_label_kss_answer_is_cached_by_answer_time():
+    cache = SensorCache()
+    def label(ts, kss=8, event="kss"):
+        return json.dumps({"schema_version": "1.0", "ts": ts, "node": "display-fatigue", "seq": 1,
+                           "data": {"event": event, "session_id": "A-1", "profile_id": "A", "ts": ts,
+                                    "kss": kss, "prompt_ts": ts - 8, "response_ms": 8000}}).encode()
+    topic = "deskmate/fatigue/label"
+    assert route_mqtt_message(cache, topic, label(1000.0, 7), now=1000.5) == "fatigue_label"
+    assert cache.fatigue_label.data["kss"] == 7.0 and cache.fatigue_label.received == 1000.0
+    # 끊긴 동안 쌓였다 다시 온 옛 응답: 더 최신 응답을 덮지 않는다
+    assert route_mqtt_message(cache, topic, label(400.0, 9), now=1001.0) == "fatigue_label"
+    assert cache.fatigue_label.data["kss"] == 7.0
+    # 늦게 도착해도 신선도는 응답 시각 기준
+    assert route_mqtt_message(cache, topic, label(1100.0, 8), now=1500.0) == "fatigue_label"
+    assert cache.fatigue_label.received == 1100.0
+    for bad in (label(1200.0, 0), label(1200.0, True), label(1200.0, 8, "session_end"), b"{not json"):
+        assert route_mqtt_message(cache, topic, bad, now=1200.0) is None
+    assert cache.fatigue_label.data["kss"] == 8.0
+    # 무응답은 따로 둔다(KSS 응답을 지우지 않음), 같은·더 옛 질문은 무시
+    assert route_mqtt_message(cache, topic, label(1300.0, None, "prompt_missed"), now=1300.0) == "fatigue_missed"
+    assert cache.fatigue_missed.data["prompt_ts"] == 1292.0 and cache.fatigue_label.data["kss"] == 8.0
+    assert route_mqtt_message(cache, topic, label(1250.0, None, "prompt_missed"), now=1301.0) == "fatigue_missed"
+    assert cache.fatigue_missed.data["prompt_ts"] == 1292.0

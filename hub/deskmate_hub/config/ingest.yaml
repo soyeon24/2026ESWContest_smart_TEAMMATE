@@ -39,6 +39,7 @@ baseline:
     idle_ratio: 0.02
     flight_cv: 0.02
     correction_rate: 0.005
+    flight_mean_ms: 8.0      # 타이핑 속도(keystroke.speed, 실험) — 1 분 창 평균이라 사람 안에서도 ±10 ms 쯤 흔들린다
     motion_level: 2.0
     co2_ppm: 15.0
   bucket_hours: 3          # 시간대 버킷 폭. 이전 세션의 같은 시간대 기준선을 seed 로 쓴다
@@ -54,6 +55,13 @@ keystroke:
   flight_cv_low: 0.25
   flight_cv_high: 0.70
   correction_rate_high: 0.15
+  # (실험, 기본 꺼짐 — 10-23 팀 제안) 타이핑 속도 저하: flight_mean_ms 가 평소(보정 창 기준선)보다 길어지면 delta 에 더한다.
+  # 기준선이 없을 때만 절대 램프(low→high ms). gain < 1 이면 다른 키 지표보다 약하게 반영.
+  speed:
+    enabled: false
+    flight_mean_low_ms: 250
+    flight_mean_high_ms: 450
+    gain: 1.0
 
 tof:
   # posture 신호. 자세 이름은 두 곳에서 온다(2026-10-17 결정: 자세 AI 모델은 Pi 4 에서 돈다).
@@ -123,6 +131,21 @@ mmwave:
     DROWSY: 1.0
   # respiration 신호: 재실 중 resp_valid=false 가 이 시간 이상 이어지면 '호흡 소실' delta 1.0
   resp_lost_sec: 60
+  # (실험, 기본 꺼짐 — life_sim 10-23 팀 제안) ToF 로 가만히 있는데 mmWave 졸음 증거가 있으면 자세 delta 1.0.
+  # 지금은 ToF 가 살아 있으면 위 drowsy_delta 를 안 쓴다(ToF 가 끊겼을 때만 대체). mode·조건 설명은 mapping._still_drowsy_and.
+  still_drowsy_and:
+    enabled: false
+    mode: hr_down            # hr_down = 펌웨어 심박 하락 증거(0x20 확장 필요) · drowsy_state = DrowsyDetector DROWSY(현 계약)
+    tof_still: motion        # motion = 자세 판정 표본의 격자 움직임 tof_motion_mm · none = ToF 조건 없음(비교용)
+    tof_motion_max_mm: 8
+    tof_still_s: 60
+    # mode hr_down_presence_base(사용자 설계 입력 10-23): 기준선 = 책상 재실 ∧ 깨어 움직일 때 심박, 가만히 있으면 얼림. 0x20 heart_bpm 만 씀
+    hr_win_s: 120            # '지금' 심박 중앙값 창
+    hr_min_n: 8
+    base_n: 60               # 기준선 = 깨어 움직일 때 심박 최근 60 표본(10 s tick 이면 약 10 분)의 중앙값
+    base_min_n: 20
+    drop_bpm: 4              # 펌웨어 kHrDropBpm 과 같은 값
+    down_hold_s: 30          # 펌웨어 kHrDownHoldMs 와 같은 값
 
 environment:
   # 절대 CO₂뿐 아니라 세션 중 상승과 어두움도 피로 증거로 삼는다.
@@ -145,3 +168,16 @@ elapsed:
   # delta = clip(세션 경과초 / full_sec)
   full_sec: 5400
   reset_on_rest: false     # true 면 휴식(REST)을 마친 뒤부터 경과 시간을 다시 잰다. false 면 휴식 중에도 쌓여 C_fatigue 가 내려오지 않는다(life_sim 10-23)
+
+# (실험) Pi 5 피로 기록 앱의 KSS 자가 응답(deskmate/fatigue/label)을 SensorFrame.self_kss 로 넘길 때의 신선도 — 앱은 15 분마다 묻는다.
+# FSM 규칙은 쓰지 않는다 — 반응 학습(learning.yaml kss_label)이 새 응답을 라벨로 쓴다.
+self_report:
+  max_age_sec: 900
+
+# 반응 학습(learning.yaml) 입력 — 재실 기준 심박 하락(SensorFrame.hr_drop_bpm). FSM 규칙에는 안 들어간다.
+# 기준선 = 책상 재실 ∧ 깨어 움직일 때(타이핑·mmWave 체동) 심박의 최근 base_n 표본 중앙값, 지금 = 최근 hr_win_s 중앙값.
+learning_inputs:
+  hr_win_s: 120
+  hr_min_n: 8
+  base_n: 60
+  base_min_n: 20

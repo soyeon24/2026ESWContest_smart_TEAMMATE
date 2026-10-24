@@ -62,8 +62,10 @@ class FatigueModel:
         self.night_gain = _pick(r, circ.get("night_gain", [0.8, 1.6]))
         self.posture_gain = float(c.get("posture_gain", 0.2))
         dim, hot = c.get("dim") or {}, c.get("hot") or {}
-        self.dim_lux, self.dim_gain = float(dim.get("below_lux", 200)), float(dim.get("gain", 0.3))
-        self.hot_c, self.hot_gain = float(hot.get("above_c", 27.0)), float(hot.get("gain", 0.3))
+        # 더위·어두움에 얼마나 지치는지(범위로 주면 사람마다 — life_sim learn --person-prefs). 위 계수 뽑기 순서를 건드리지 않게 따로 뽑는다
+        pr = random.Random(seed * 31 + 7)
+        self.dim_lux, self.dim_gain = _pick(pr, dim.get("below_lux", 200)), _pick(pr, dim.get("gain", 0.3))
+        self.hot_c, self.hot_gain = _pick(pr, hot.get("above_c", 27.0)), _pick(pr, hot.get("gain", 0.3))
         al = c.get("alert") or {}
         self.wake_boost = _pick(r, al.get("wake_boost", [0.35, 0.6]))
         self.self_wake_boost = _pick(r, al.get("self_wake_boost", [0.1, 0.25]))
@@ -112,7 +114,9 @@ class FatigueModel:
         return {"task_half_h": round(math.log(2.0) / self.k_task / 3600.0, 2),
                 "rest_half_min": round(math.log(2.0) / self.k_rest / 60.0, 1), "co2_gain": round(self.co2_gain, 2),
                 "dip_gain": round(self.dip_gain, 2), "night_gain": round(self.night_gain, 2), "s50": round(self.s50, 3),
-                "wake_boost": round(self.wake_boost, 2), "tau_alert_min": round(self.tau_alert / 60.0, 1)}
+                "wake_boost": round(self.wake_boost, 2), "tau_alert_min": round(self.tau_alert / 60.0, 1),
+                "hot_c": round(self.hot_c, 1), "hot_gain": round(self.hot_gain, 2),
+                "dim_lux": round(self.dim_lux), "dim_gain": round(self.dim_gain, 2)}
 
     def step(self, now: float, *, kind: str, co2: float, lux: float, felt_c: float) -> None:
         """1 초. kind = 지금 사람 구간 종류(away·drowsy·upright ...)."""

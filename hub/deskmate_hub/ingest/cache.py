@@ -38,6 +38,8 @@ class SensorCache:
     tof_grid: Sample | None = None       # UART 0x05 원본 8×8 센서 프레임 묶음(표본 하나, 5 Hz). 메모리 전용 — 발행·기록 금지
     tof_mlp: Sample | None = None        # posture/tof_mlp 가 격자마다 낸 자세 판정 (1 s 다수결)
     weather: Sample | None = None        # deskmate/sensor/weather (Pi 5 앱, retain, 30 분). FSM 입력 아님 — personalize 만 읽는다
+    fatigue_label: Sample | None = None  # deskmate/fatigue/label 의 마지막 KSS 응답(Pi 5 피로 기록 앱). FSM 입력이 아니다 — 반응 학습(learning.yaml kss_label)의 라벨
+    fatigue_missed: Sample | None = None  # 같은 토픽의 마지막 prompt_missed(앱 질문에 답 없음) — 반응 학습(missed_label)의 라벨
     feedback: deque = field(default_factory=lambda: deque(maxlen=16))
     control_results: deque = field(default_factory=lambda: deque(maxlen=64))
     feedback_received: deque = field(default_factory=lambda: deque(maxlen=16))
@@ -91,6 +93,8 @@ class SensorCache:
                 tof_grid=self.tof_grid,
                 tof_mlp=self.tof_mlp,
                 weather=self.weather,
+                fatigue_label=self.fatigue_label,
+                fatigue_missed=self.fatigue_missed,
                 keystroke_history=list(self.keystroke_history),
                 feedback=list(self.feedback),
             )
@@ -125,6 +129,8 @@ class CacheView:
     tof_grid: Sample | None = None
     tof_mlp: Sample | None = None
     weather: Sample | None = None
+    fatigue_label: Sample | None = None
+    fatigue_missed: Sample | None = None
 
     def fresh(self, kind: str, now: float, max_age: float) -> Sample | None:
         sample: Sample | None = getattr(self, kind)

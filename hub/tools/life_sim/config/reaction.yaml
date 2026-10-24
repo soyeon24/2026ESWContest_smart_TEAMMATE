@@ -22,6 +22,10 @@ defaults:
     fan_high: 0.50
     purifier: 0.00
     tts: 0.85               # 스피커 TTS
+    screen_bright: 0.25     # 장치 화면을 확 밝게(가정 — 화면을 보고 있을 때만 효과)
+    music_upbeat: 0.50      # 스피커로 신나는 음악(KLZS-L1 스피커, 가정)
+    white_noise: 0.10       # 백색소음 — 깨우기보다 집중용(가정)
+    lamp_neutral: 0.35      # 무드등 자연광(공부용)
     sound: 0.60             # 알림음(personalize arm sound_cue)
     window_open: 0.20
   escalation: {wake_gain: 0.25}        # 같은 에피소드에서 n 번째 개입은 (1+gain·n) 배
@@ -32,6 +36,8 @@ defaults:
 
   # 턱괴기·거북목·숙임 알림에 자세를 고칠 확률과 유지 시간
   posture_fix:
+    screen_bright: 0.20
+    music_upbeat: 0.10
     screen_notice: 0.50
     screen_card: 0.60
     tts: 0.70
@@ -43,8 +49,22 @@ defaults:
   undo: {p: 0.05, delay_s: [5, 50], focus_disturb_add: 0.10}
   noise_reject: {fan_high: 0.30}       # 강풍 소음 → 되돌리기 가산
 
+  # 사람마다 기기 호불호(life_sim learn --person-prefs 가 켬, reaction.py set_prefs). 싫어하는 출력은 깨움·자세 복귀 효과가
+  # dislike_wake_mult 배이고, 자동으로 나오면 undo_p 로 끈다. dislike_p = 그 출력을 싫어하는 사람의 비율(가정).
+  prefs:
+    enabled: false
+    dislike_p: {music_upbeat: 0.40, white_noise: 0.20, tts: 0.20, sound: 0.25, lamp_cool: 0.25, fan_high: 0.30, screen_bright: 0.20}
+    dislike_wake_mult: 0.5
+    undo_p: 0.5
+    # 밤(night_hours)에 눈부신 출력은 누구나 싫어한다고 본다 — 무드등 색을 때에 맞게 고르는지 배우게(10-24 사용자 "색상 적절한걸로")
+    night_hours: [22, 6]
+    night_dislikes: [lamp_cool, screen_bright]
+
   # 휴식 권유를 받아 자리를 비우는 행동
   rest: {go_away_p: 0.5, delay_s: [20, 90], away_s: [180, 420]}
+
+  # 반응 학습의 확인 카드("지금 피곤하세요?") 응답 — 화면을 보면(attend) 지금 졸림 S 대로 예 = sigmoid((S − s50)/width)
+  checkin: {attend_awake: 0.9, attend_sleepy: 0.4, s50: 0.55, width: 0.07, delay_s: [5, 40]}
 
   # 잠재 피로(fatigue.py) — 켜면 졸음·자세 무너짐·키 입력 저하가 각본이 아니라 피로 F 에서 생긴다. [lo, hi] 는 사람마다 뽑는 범위.
   fatigue:
@@ -66,6 +86,24 @@ defaults:
 
 personas:
   default: {}
+  neutral: {}     # 공통모델용 '선호가 별로 없는 사람' — 기본 반응표 그대로(life_sim learn --persona neutral)
+  book_examinee:  # 시연 1: 책으로 공부하는 수험생 — 늘 피곤(수면 부족), 조명엔 잘 깨고 선풍기 소음·음악은 싫어함, 휴식은 거절
+    card:
+      posture_suggest: {accept: 0.70, reject: 0.05, none: 0.25}
+      env_suggest:     {accept: 0.65, reject: 0.10, none: 0.25}
+      break_suggest:   {accept: 0.20, reject: 0.50, none: 0.30}
+    wake: {lamp_cool: 0.65, lamp_neutral: 0.60, lamp_bright: 0.55, tts: 0.80, screen_bright: 0.05, screen_notice: 0.10, white_noise: 0.15}
+    rest: {go_away_p: 0.3}
+    fatigue: {f0: [0.35, 0.50], task_half_h: [0.7, 1.1], rest_half_min: [15, 25], circadian: {night_gain: [1.2, 1.8]}}
+    prefs: {dislikes: [fan_high, music_upbeat]}
+  pc_student:     # 시연 2: 컴퓨터를 주로 쓰는 대학생 — 휴대폰·딴짓, 자세가 가장 나쁨(자세 안내를 잘 안 따름), 음악은 좋아하고 음성 안내는 싫어함
+    card:
+      posture_suggest: {accept: 0.30, reject: 0.30, none: 0.40}
+      break_suggest:   {accept: 0.45, reject: 0.25, none: 0.30}
+    posture_fix: {screen_notice: 0.30, screen_card: 0.35, tts: 0.40, lamp_cool: 0.05, music_upbeat: 0.15}
+    wake: {music_upbeat: 0.70, screen_bright: 0.45, tts: 0.60, sound: 0.55, lamp_neutral: 0.25}
+    focus: {card_reject_add: 0.30}
+    prefs: {dislikes: [tts]}
   student:        # 과제 중 대학생: 카드에 잘 답하지만 몰입 중 방해를 싫어함, TTS 에 잘 깸
     card:
       posture_suggest: {accept: 0.65, reject: 0.10, none: 0.25}
@@ -85,6 +123,31 @@ personas:
       posture_suggest: {accept: 0.70, reject: 0.05, none: 0.25}
       env_suggest:     {accept: 0.70, reject: 0.10, none: 0.20}
       break_suggest:   {accept: 0.25, reject: 0.45, none: 0.30}
-    wake: {lamp_cool: 0.55, tts: 0.85}
+    wake: {lamp_cool: 0.55, tts: 0.85, screen_bright: 0.05}      # 종이 공부라 화면을 거의 안 봄
     rest: {go_away_p: 0.3}
     fatigue: {f0: [0.20, 0.40], task_half_h: [0.8, 1.5]}     # 수면 부족·긴 공부: 시작 피로↑, 빨리 지침
+  designer:       # 디자이너(마우스·태블릿): 소리 알림을 싫어하고 조명 변화엔 잘 반응, 자세 카드는 무시 많음
+    card:
+      posture_suggest: {accept: 0.35, reject: 0.15, none: 0.50}
+      env_suggest:     {accept: 0.60, reject: 0.10, none: 0.30}
+      break_suggest:   {accept: 0.40, reject: 0.25, none: 0.35}
+    noise_reject: {tts: 0.40, sound: 0.40}
+    wake: {lamp_cool: 0.70, tts: 0.60, screen_notice: 0.30, screen_bright: 0.45}
+    rest: {go_away_p: 0.5}
+  writer:         # 밤 작업 작가·문서 작업: 몰입 중 방해를 매우 싫어함, 휴식 거절, 늦게까지 버팀(피로 누적)
+    card:
+      posture_suggest: {accept: 0.30, reject: 0.35, none: 0.35}
+      env_suggest:     {accept: 0.40, reject: 0.30, none: 0.30}
+      break_suggest:   {accept: 0.15, reject: 0.60, none: 0.25}
+    focus: {card_reject_add: 0.45}
+    wake: {tts: 0.75, screen_notice: 0.15, screen_bright: 0.35}
+    rest: {go_away_p: 0.2}
+    fatigue: {f0: [0.25, 0.45], task_half_h: [1.2, 2.2]}
+  researcher:     # 아침형 연구자(논문 읽기): 카드에 성실히 답하고 휴식도 잘 감, 덜 지침
+    card:
+      posture_suggest: {accept: 0.75, reject: 0.05, none: 0.20}
+      env_suggest:     {accept: 0.65, reject: 0.10, none: 0.25}
+      break_suggest:   {accept: 0.55, reject: 0.15, none: 0.30}
+    wake: {tts: 0.90, lamp_cool: 0.60, screen_notice: 0.45}
+    rest: {go_away_p: 0.7}
+    fatigue: {f0: [0.10, 0.25], task_half_h: [1.5, 2.5]}

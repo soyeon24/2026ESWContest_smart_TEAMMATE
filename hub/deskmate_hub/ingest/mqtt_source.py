@@ -16,6 +16,7 @@ from .cache import SensorCache
 from .mqtt_lines import (
     TOPIC_CONTROL_CMD,
     TOPIC_CONTROL_RESULT,
+    TOPIC_FATIGUE_LABEL,
     TOPIC_SESSION_REPORT,
     route_mqtt_message,
 )
@@ -81,7 +82,8 @@ class MqttSource:
             self._log(f"[mqtt] connect failed: {reason_code}")
             return
         self.connected = True
-        client.subscribe([(TOPIC_SENSOR, 0), (TOPIC_FEEDBACK, 1), (TOPIC_CONTROL_RESULT, 1)])
+        # fatigue/label 은 cache 에만 둔다 — 반응 학습(learning.yaml, 기본 꺼짐)의 라벨이고 FSM 입력은 아니다
+        client.subscribe([(TOPIC_SENSOR, 0), (TOPIC_FEEDBACK, 1), (TOPIC_CONTROL_RESULT, 1), (TOPIC_FATIGUE_LABEL, 1)])
         client.publish(TOPIC_HEALTH, json.dumps({"ts": round(time.time(), 3), "node": "hub", "status": "online"}),
                        qos=1, retain=True)
         self._log(f"[mqtt] connected {self.host}:{self.port}")

@@ -27,6 +27,8 @@ class DeviceState:
     purifier_level: int = 0            # 0~3
     lamp_on: bool = False
     lamp_brightness: int = 0           # 0~100 (%)
+    screen_bright_count: int = 0       # 화면 밝기 올림 횟수
+    music_count: int = 0               # 스피커 음악 튼 횟수
     lamp_mode: str = "off"             # off | cool | warm | hub (hub set_brightness)
     window_open_until: float | None = None
     tts_count: int = 0
@@ -217,6 +219,14 @@ class DeviceWorld:
             s.notice_count += 1
         elif channel == "screen_card":
             s.card_count += 1
+        elif channel == "screen_bright":                 # 장치 화면을 밝게(반응학습 v11 출력, 사람 깨움 효과는 reaction.yaml)
+            s.screen_bright_count += 1
+        elif channel == "music_upbeat":                  # 스피커로 신나는 음악(반응학습 v11 출력)
+            s.music_count += 1
+        elif channel == "white_noise":                   # 스피커로 백색소음
+            s.music_count += 1
+        elif channel == "lamp_neutral":                  # 무드등 자연광(공부용)
+            s.lamp_on, s.lamp_mode = True, "neutral"
         elif channel in ("fan_on", "fan_high", "fan_off"):
             s.fan_level = {"fan_on": int(self.dev_cfg.get("vent_fan", {}).get("hub_on_level", 2)), "fan_high": 3, "fan_off": 0}[channel]
         elif channel == "purifier":

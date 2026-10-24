@@ -411,3 +411,56 @@ def test_live_hub_reads_elapsed_reset_on_rest_from_ingest_config(cfg):
     assert LiveHub(SensorCache(), ingest_cfg=cfg, out=io.StringIO()).tracker.elapsed_reset_on_rest is False
     cfg2 = dict(cfg, elapsed=dict(cfg["elapsed"], reset_on_rest=True))
     assert LiveHub(SensorCache(), ingest_cfg=cfg2, out=io.StringIO()).tracker.elapsed_reset_on_rest is True
+
+
+def kss_label(ts, kss=8):
+    return Sample(received=ts, ts=ts, seq=None, data={"kss": float(kss), "prompt_ts": ts - 5})
+
+
+def test_self_kss_passes_only_fresh_app_answer(cfg):
+    cache = SensorCache()
+    cache.put("tof", tof(100.0))
+    assert build_frame(cache.snapshot(), 100.0, cfg, SessionTracker(), fsm_state=State.FOCUS_NPC).self_kss is None
+    cache.put("fatigue_label", kss_label(100.0, 8))
+    f = build_frame(cache.snapshot(), 100.0 + 899, cfg, SessionTracker(), fsm_state=State.FOCUS_NPC)
+    assert f.self_kss == 8.0
+    f = build_frame(cache.snapshot(), 100.0 + 901, cfg, SessionTracker(), fsm_state=State.FOCUS_NPC)
+    assert f.self_kss is None                                   # 앱은 15 분마다 묻는다 — 그보다 옛 응답은 안 쓴다
+
+
+def _ks_speed(now, flight, *, cv=0.2):
+    s = ks(now, cv=cv, corr=0.0)
+    s.data["flight_mean_ms"] = flight
+    return s
+
+
+def test_keystroke_speed_slowdown_is_off_by_default(cfg):
+    cache, tr = SensorCache(), SessionTracker()
+    cache.put("keystroke", _ks_speed(100.0, 400.0))
+    f = build_frame(cache.snapshot(), 100.0, cfg, tr, fsm_state=State.FOCUS_PC)
+    assert f.signals["keystroke"].delta == 0.0          # flight_cv 0.2·정정 0 → 기존 지표로는 증거 없음, 느려진 속도는 안 봄
+
+
+def test_keystroke_speed_slowdown_linear_fallback(cfg):
+    cfg["keystroke"]["speed"] = dict(cfg["keystroke"]["speed"], enabled=True)
+    cache, tr = SensorCache(), SessionTracker()                    # 기준선 없음 → 절대 램프 250→450 ms
+    cache.put("keystroke", _ks_speed(100.0, 350.0))
+    f = build_frame(cache.snapshot(), 100.0, cfg, tr, fsm_state=State.FOCUS_PC)
+    assert f.signals["keystroke"].delta == pytest.approx(0.5)
+
+
+def test_keystroke_speed_slowdown_against_personal_baseline(cfg):
+    from deskmate_hub.features import BaselineStore
+    cfg["keystroke"]["speed"] = dict(cfg["keystroke"]["speed"], enabled=True)
+    store = BaselineStore(cfg["baseline"])
+    tr = SessionTracker(); tr.baseline = store
+    cache = SensorCache()
+    store.begin_calibration()                                      # 평소: 160 ms 근처(사람마다 다른 속도)
+    for i in range(30):
+        cache.put("keystroke", _ks_speed(float(i), 160.0 + (i % 5) - 2))
+        build_frame(cache.snapshot(), float(i), cfg, tr, fsm_state=State.START)
+    store.end_calibration(30.0)
+    cache.put("keystroke", _ks_speed(40.0, 162.0))                 # 평소 속도 → 증거 거의 0
+    assert build_frame(cache.snapshot(), 40.0, cfg, tr, fsm_state=State.FOCUS_PC).signals["keystroke"].delta < 0.1
+    cache.put("keystroke", _ks_speed(41.0, 240.0))                 # 평소보다 50 % 느림 → 절대 램프(250 미만이라 0)와 달리 강한 증거
+    assert build_frame(cache.snapshot(), 41.0, cfg, tr, fsm_state=State.FOCUS_PC).signals["keystroke"].delta == 1.0

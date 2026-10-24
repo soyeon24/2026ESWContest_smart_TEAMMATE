@@ -12,12 +12,13 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .cache import SensorCache
+from .cache import Sample, SensorCache
 from .protocol import TOPIC_FEEDBACK, parse_sensor_message
 
 TOPIC_CONTROL_CMD = "deskmate/control/cmd"
 TOPIC_CONTROL_RESULT = "deskmate/control/result"
 TOPIC_SESSION_REPORT = "deskmate/session/report"
+TOPIC_FATIGUE_LABEL = "deskmate/fatigue/label"   # Pi 5 피로 기록 앱(PR #58). kss 응답만 cache 에 — 반응 학습 라벨(FSM 입력 아님)
 
 LINE_PREFIX = "MQTT\t"
 
@@ -42,6 +43,35 @@ def route_mqtt_message(cache: SensorCache, topic: str, payload: bytes, now: floa
             return None
         put_control_result(data, received=now)
         return "control_result"
+    if topic == TOPIC_FATIGUE_LABEL:
+        try:
+            body = json.loads(payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        data = body.get("data") if isinstance(body, dict) and isinstance(body.get("data"), dict) else body
+        if not isinstance(data, dict) or data.get("event") not in ("kss", "prompt_missed"):
+            return None
+        kss, ts = data.get("kss"), data.get("ts", body.get("ts"))
+        if data["event"] == "prompt_missed":            # 앱 질문에 답이 없었다(docs/mqtt-topics.md 피로 데이터 수집)
+            pts = data.get("prompt_ts")
+            if isinstance(pts, bool) or not isinstance(pts, (int, float)):
+                return None
+            ts = float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else now
+            last = getattr(cache, "fatigue_missed", None)
+            if last is not None and float(pts) <= float(last.data["prompt_ts"]):
+                return "fatigue_missed"
+            cache.put("fatigue_missed", Sample(received=min(now, ts), ts=ts, seq=None, data={"prompt_ts": float(pts)}))
+            return "fatigue_missed"
+        if isinstance(kss, bool) or not isinstance(kss, (int, float)) or not 1 <= kss <= 9:
+            return None
+        ts = float(ts) if isinstance(ts, (int, float)) and not isinstance(ts, bool) else now
+        # 앱은 끊긴 동안의 응답을 다시 보낸다 — 신선도는 받은 시각이 아니라 응답 시각으로 재고, 더 옛 응답은 덮어쓰지 않는다.
+        last = getattr(cache, "fatigue_label", None)
+        if last is not None and ts < last.ts:
+            return "fatigue_label"
+        cache.put("fatigue_label", Sample(received=min(now, ts), ts=ts, seq=None,
+                                           data={"kss": float(kss), "prompt_ts": data.get("prompt_ts")}))
+        return "fatigue_label"
     parsed = parse_sensor_message(topic, payload, now)
     if parsed is None:
         return None

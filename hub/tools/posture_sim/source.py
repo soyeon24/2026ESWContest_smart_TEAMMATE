@@ -18,9 +18,11 @@ class TofsimSource:
         from .scene import build_scene
         if tofsim_bridge.load(tofsim_root) is None:
             raise RuntimeError("tofsim 을 찾지 못했다 (TOFSIM_ROOT 또는 --tofsim)")
-        self.scene = build_scene(int(scenario["seed"]), backend=backend, placement=scenario["placement"],
+        # scene_seed(life_sim learn): 같은 사람이면 날마다 같은 방·책상·체형·기기 위치. 없으면 각본 시드.
+        self.scene = build_scene(int(scenario.get("scene_seed", scenario["seed"])), backend=backend, placement=scenario["placement"],
                                  clutter=int(scenario["clutter"]), scene=scenario["scene"],
-                                 require_ok=bool(scenario["require_ok_placement"]), l8_params=scenario.get("l8_params"))
+                                 require_ok=bool(scenario["require_ok_placement"]), l8_params=scenario.get("l8_params"),
+                                 arc_azimuths=scenario.get("arc_azimuths"), arc_device=scenario.get("drive_device"))
         self.person = ScriptedPerson(scenario["segments"], seed=int(scenario["seed"]) + 1, fps=float(scenario["fps"]))
         self.person.bind(self.scene.cfg)
         self.meta = dict(self.scene.meta)

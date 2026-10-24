@@ -49,6 +49,14 @@ def test_adjust_accepts_json_string_and_undo_restores(world):
     assert world.state.lamp_raw == 100 and world.state.lamp_brightness == 39
 
 
+def test_wake_min_raw_guarantees_brightness_from_off(world):
+    r = world.apply_command(cmd("adjust_brightness", {"percent": 60, "min_raw": 153}), 1.0)
+    assert (r["previous"], r["actual"]) == (0, 153)          # 꺼짐: 48 이지만 깨우기는 최소 153(60 %)
+    assert r["channels"] == ["lamp_bright"]
+    world.apply_command(cmd("set_brightness", 120), 2.0)
+    assert world.apply_command(cmd("adjust_brightness", {"percent": 60, "min_raw": 153}), 3.0)["actual"] == 192
+
+
 def test_channel_lamps_set_the_raw_base(world):
     world.apply_channel("lamp_cool", 1.0)
     assert world.state.lamp_raw == 230

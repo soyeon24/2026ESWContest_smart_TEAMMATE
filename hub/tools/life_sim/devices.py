@@ -216,20 +216,24 @@ class DeviceWorld:
 
     def _adjusted_raw(self, value: Any) -> int:
         """adjust_brightness 계약(노트북 10-25): 기준 = 마지막으로 쓴 원시 밝기, 꺼짐·모름이면 하한(adjust_floor_raw, 기본 30).
-        새 값 = clamp(round(기준 × (1 + n/100)), 하한, 255), 올리는데 같은 값이면 최소 한 단계."""
+        새 값 = clamp(round(기준 × (1 + n/100)), 하한, 255), 올리는데 같은 값이면 최소 한 단계.
+        value 에 min_raw 가 있으면 결과를 그 이상으로(노트북 10-25: 깨우기 percent 60 + min_raw 153 — 꺼진 무드등에서도 60 %)."""
         s = self.state
+        if isinstance(value, str) and value.strip().startswith("{"):
+            import json
+            value = json.loads(value)
         if isinstance(value, dict):
             n = float(value.get("percent", 0))
-        elif isinstance(value, str) and value.strip().startswith("{"):
-            import json
-            n = float(json.loads(value).get("percent", 0))
+            min_raw = value.get("min_raw")
         else:
-            n = float(value)
+            n, min_raw = float(value), None
         floor = int(self.dev_cfg.get("desk_lamp", {}).get("adjust_floor_raw", 30))
         base = s.lamp_raw if (s.lamp_on and s.lamp_raw) else floor
         raw = max(floor, min(255, int(round(base * (1.0 + n / 100.0)))))
         if n > 0 and raw <= base:
             raw = min(255, base + 1)
+        if min_raw is not None:
+            raw = max(raw, min(255, int(min_raw)))
         return raw
 
     # ---------------------------------------------------------------- life_sim 채널 (hub 밖의 전달 수단)

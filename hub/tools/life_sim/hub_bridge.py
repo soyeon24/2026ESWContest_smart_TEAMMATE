@@ -283,6 +283,12 @@ class HubBridge:
             if req.get("kind") == "checkin_suggest":
                 events.append({"kind": "checkin_suggest", "state": state, "gate": "suggest", "request_id": req.get("request_id"),
                                "expires_in_s": req.get("expires_in_s"), "p_model": req.get("p_model"), "c_fatigue": info["c_fatigue"]})
+            elif req.get("kind") == "vent_suggest" and req.get("source") == "co2_window":
+                # hub CO₂ 창문 규칙(보드 co2_window.py, FSM 밖) 카드 — 사람이 보고 답하면 같은 request_id 로 hub 에 돌려준다
+                events.append({"kind": "vent_suggest", "state": state, "gate": "suggest", "request_id": req.get("request_id"),
+                               "expires_in_s": req.get("expires_in_s"), "c_fatigue": info["c_fatigue"], "cause": "environment",
+                               "arm": req.get("arm"), "arm_label": req.get("arm_label"), "explanation": req.get("explanation"),
+                               "minutes": req.get("minutes"), "co2_avg": req.get("co2_avg"), "rule": "co2_window"})
         info["events"] = events
         self.prev_state = prev
         self.last_tick = info

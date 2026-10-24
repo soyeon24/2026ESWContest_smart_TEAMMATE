@@ -537,6 +537,8 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
                     rr.payload["arm"] = arm
                     if ev2.get("policy_downgraded"):
                         rr.payload["sim_card"] = True
+                    if ev.get("minutes") is not None:                # hub CO₂ 창문 카드: 수락하면 이 시간만큼 창문을 연다
+                        rr.payload["minutes"] = ev["minutes"]
             pending.extend(reactions)
             vent = world.ventilation_choice(world.env["co2_ppm"], world.env["pm25"]) if ev["kind"].startswith("env_") else None
             rec = {"t": now, "kind": "intervention", **ev2, "hub_kind": ev["kind"], "channels": chans, "person_kind": person_kind(),

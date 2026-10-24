@@ -324,6 +324,16 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
             if ch != "hub_commands":
                 world.apply_channel(ch, now, payload)
 
+    def apply_cmd(cmd: dict[str, Any], now: float) -> dict[str, Any]:
+        """기기 명령 적용. adjust_brightness(10-25 계약)는 실제 이전·결과 밝기를 같은 command_id 의 control/result 로 hub 에 돌려준다
+        — hub 는 되돌리기를 set_brightness <previous> 로 만든다. 다른 명령은 지금처럼 hub mock 어댑터의 즉시 성공 응답만."""
+        applied = world.apply_command(cmd, now)
+        if cmd.get("operation") == "adjust_brightness" and "actual" in applied:
+            hub.control_result({"command_id": cmd.get("command_id"), "status": "succeeded", "actual_value": applied["actual"],
+                                "previous": applied["previous"], "actual": applied["actual"],
+                                "completed_ts_ms": int(now * 1000), "node": "life_sim-lamp"}, now)
+        return applied
+
     def arm_chans(arm: str | None, gate: str, fallback_kind: str) -> list[str]:
         if arm and arm in arm_channels:
             return list((arm_channels[arm] or {}).get(gate) or [])
@@ -410,7 +420,7 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
                     pending.extend(reaction.deliver([c for c in acc if c != "hub_commands"], now + 1.0,
                                                     person_kind=person_kind(), focus=in_focus(), origin=ev_kind + "/accept"))
                     for cmd in held_commands.pop(ev_kind, []):
-                        applied = world.apply_command(cmd, now)
+                        applied = apply_cmd(cmd, now)
                         emit({"t": now, "kind": "command", "held_until_accept": True,
                               **{k: cmd.get(k) for k in ("target_id", "operation", "value", "gate", "command_id")},
                               "channels": applied["channels"], "devices": world.snapshot()})
@@ -548,7 +558,7 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
                 held_commands.setdefault("env_auto", []).append(cmd)
                 emit({"t": now, "kind": "command_held", **{k: cmd.get(k) for k in ("target_id", "operation", "value", "gate", "command_id")}})
                 continue
-            applied = world.apply_command(cmd, now)
+            applied = apply_cmd(cmd, now)
             emit({"t": now, "kind": "command", **{k: cmd.get(k) for k in ("target_id", "operation", "value", "gate", "command_id")},
                   "channels": applied["channels"], "devices": world.snapshot()})
             if cmd.get("gate") != "undo":
@@ -654,7 +664,7 @@ def run_scenario(scenario: dict[str, Any], *, out_dir: str, model_path: str | No
             pcmd = purifier.observe(t, world.env["pm25"], present=present_dec,
                                     state=last_tick["state"] if last_tick else None)
             if pcmd is not None:
-                applied = world.apply_command(pcmd, t)
+                applied = apply_cmd(pcmd, t)
                 emit({"t": t, "kind": "command", **{k2: pcmd[k2] for k2 in ("target_id", "operation", "value", "gate", "why")},
                       "pm_avg": round(purifier.avg or 0.0, 1), "channels": applied["channels"], "devices": world.snapshot()})
             # CO₂ 환기 타이밍 규칙(FSM 밖, 기본 꺼짐) — ventilation.py

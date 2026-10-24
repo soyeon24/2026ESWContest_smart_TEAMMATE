@@ -5,7 +5,8 @@
                 operation set_power on/off 로 오므로 on → `hub_on_level`(기본 2) 로 받는다. 효과: 체감온도↓·각성↑(작음)·강에서 소음.
   air_purifier  LG ThinQ 공기청정기(읽기 전용 탐색은 feat/device-control-platform-20261019 의 device_gateway). PM↓, CO₂는 못 내린다
                 → CO₂ 높음은 "환기(창문)" 권유 카드로 간다.
-  desk_lamp     iLink 블루투스 무드등(control/ilink_light.py). 차갑고 밝게 = 각성↑, 따뜻하고 낮게 = 이완. hub 는 set_brightness 로 온다.
+  desk_lamp     iLink 블루투스 무드등(control/ilink_light.py). 차갑고 밝게 = 각성↑, 따뜻하고 낮게 = 이완. hub 는 set_brightness(원시
+                0~255) 또는 adjust_brightness({"percent": n}, 10-25 사용자 "기존 대비 % 올리기")로 온다. 결과는 previous·actual.
   speaker       Atlas A2DP 블루투스 스피커 + ATLAS TTS(VoiceManager1.StartTTS, 한국어 미확인). 깨우기 확률 최대, 몰입 중 방해 거절↑.
   screen        Pi 5 화면 카드(제안 수락·거절·무응답, 자동 실행 알림 + 되돌리기, 정정).
   window        사람이 여는 창문(기기 아님) — 환기 권유 카드를 수락하면 vent_minutes 동안 열린다.
@@ -30,6 +31,7 @@ class DeviceState:
     screen_bright_count: int = 0       # 화면 밝기 올림 횟수
     music_count: int = 0               # 스피커 음악 튼 횟수
     lamp_mode: str = "off"             # off | cool | warm | hub (hub set_brightness)
+    lamp_raw: int | None = None        # 마지막으로 쓴 iLink 원시 밝기 0~255 (None = 모름). adjust_brightness 의 기준
     window_open_until: float | None = None
     tts_count: int = 0
     notice_count: int = 0
@@ -179,6 +181,7 @@ class DeviceWorld:
         target, op, value = cmd.get("target_id"), cmd.get("operation"), cmd.get("value")
         s = self.state
         channels: list[str] = []
+        result: dict[str, Any] = {}
         if target == "vent_fan" and op == "set_power":
             lvl = int(self.dev_cfg.get("vent_fan", {}).get("hub_on_level", 2)) if str(value).lower() == "on" else 0
             s.fan_level = lvl
@@ -186,13 +189,20 @@ class DeviceWorld:
         elif target == "vent_fan" and op == "set_level":
             s.fan_level = max(0, min(3, int(value)))
             channels.append("fan_high" if s.fan_level >= 3 else "fan_on" if s.fan_level > 0 else "fan_off")
-        elif target == "desk_lamp" and op == "set_brightness":
+        elif target == "desk_lamp" and op in ("set_brightness", "adjust_brightness"):
             # iLink 원시 밝기 0~255 (mqtt-topics.md: 퍼센트 아님) — hub 기본 환경 명령 70 ≈ 27 %, personalize cool_bright 200 ≈ 78 %
-            pct = int(round(max(0, min(255, int(value))) / 255.0 * 100))
+            previous = s.lamp_raw if (s.lamp_on and s.lamp_raw is not None) else 0
+            if op == "set_brightness":
+                raw = max(0, min(255, int(value)))
+            else:
+                raw = self._adjusted_raw(value)
+            s.lamp_raw = raw
+            pct = int(round(raw / 255.0 * 100))
             s.lamp_on = pct > 0
             s.lamp_brightness = pct
             s.lamp_mode = "hub" if s.lamp_on else "off"
             channels.append("lamp_bright" if pct >= int(self.dev_cfg.get("desk_lamp", {}).get("bright_pct", 60)) else "lamp_dim")
+            result = {"previous": previous, "actual": raw}
         elif target == "desk_lamp" and op == "set_power":
             s.lamp_on = str(value).lower() == "on"
             channels.append("lamp_bright" if s.lamp_on else "lamp_off")
@@ -201,18 +211,39 @@ class DeviceWorld:
             channels.append("purifier")
         else:
             channels.append("unknown_command")
-        self._log(now, "command", f"{target}.{op}={value}", {"gate": cmd.get("gate"), "command_id": cmd.get("command_id")})
-        return {"channels": channels, "target": target, "operation": op, "value": value}
+        self._log(now, "command", f"{target}.{op}={value}", {"gate": cmd.get("gate"), "command_id": cmd.get("command_id"), **result})
+        return {"channels": channels, "target": target, "operation": op, "value": value, **result}
+
+    def _adjusted_raw(self, value: Any) -> int:
+        """adjust_brightness 계약(노트북 10-25): 기준 = 마지막으로 쓴 원시 밝기, 꺼짐·모름이면 하한(adjust_floor_raw, 기본 30).
+        새 값 = clamp(round(기준 × (1 + n/100)), 하한, 255), 올리는데 같은 값이면 최소 한 단계."""
+        s = self.state
+        if isinstance(value, dict):
+            n = float(value.get("percent", 0))
+        elif isinstance(value, str) and value.strip().startswith("{"):
+            import json
+            n = float(json.loads(value).get("percent", 0))
+        else:
+            n = float(value)
+        floor = int(self.dev_cfg.get("desk_lamp", {}).get("adjust_floor_raw", 30))
+        base = s.lamp_raw if (s.lamp_on and s.lamp_raw) else floor
+        raw = max(floor, min(255, int(round(base * (1.0 + n / 100.0)))))
+        if n > 0 and raw <= base:
+            raw = min(255, base + 1)
+        return raw
 
     # ---------------------------------------------------------------- life_sim 채널 (hub 밖의 전달 수단)
     def apply_channel(self, channel: str, now: float, payload: dict[str, Any] | None = None) -> None:
         s = self.state
         if channel == "lamp_cool":
             s.lamp_on, s.lamp_mode, s.lamp_brightness = True, "cool", int(self.dev_cfg.get("desk_lamp", {}).get("cool_pct", 90))
+            s.lamp_raw = int(round(s.lamp_brightness / 100.0 * 255))
         elif channel == "lamp_warm":
             s.lamp_on, s.lamp_mode, s.lamp_brightness = True, "warm", int(self.dev_cfg.get("desk_lamp", {}).get("warm_pct", 35))
+            s.lamp_raw = int(round(s.lamp_brightness / 100.0 * 255))
         elif channel == "lamp_off":
             s.lamp_on, s.lamp_mode, s.lamp_brightness = False, "off", 0
+            s.lamp_raw = 0
         elif channel in ("tts", "sound"):
             s.tts_count += 1
         elif channel == "screen_notice":

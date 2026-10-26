@@ -290,8 +290,22 @@ def score_one(model_path: str, npz_path: str):
     # the board's fusion (sum of log-probabilities) over the two sensors of the same stretch of time. Two sessions: those
     # two. More: sessions are paired by their run number (the "#<r>" convert() appends: a gap or reboot cut both sensors
     # at the same place), so rec@s0#1 goes with rec@s1#1.
+    h0all = data.get("session_host_t0", np.full(n, np.nan))
+    src = [nm.rsplit("#", 1)[0] for nm in names[:n]]
     if n == 2:
         pairs = [(0, 1)]
+    elif len(set(src)) == 2 and np.all(np.isfinite(h0all[:n])):
+        # host times known: pair each session of the first sensor with the session of the other sensor that covers
+        # most of the same time. A polling gap does not always cut both sensors at the same place (10-26 left2: the
+        # run numbers drift apart after the first gap that hits only one sensor), so run numbers can pair the wrong stretches.
+        first, second = sorted(set(src))
+        span = [(h0all[i], h0all[i] + (starts[i + 1] - starts[i]) / 10.0) for i in range(n)]
+        pairs = []
+        for i in (k for k in range(n) if src[k] == first):
+            ov = [(min(span[i][1], span[j][1]) - max(span[i][0], span[j][0]), j) for j in range(n) if src[j] == second]
+            o, j = max(ov)
+            if o > 0:
+                pairs.append((i, j))
     else:
         runs = {}
         for i, nm in enumerate(names[:n]):
@@ -299,7 +313,6 @@ def score_one(model_path: str, npz_path: str):
         pairs = [tuple(v) for _, v in sorted(runs.items()) if len(v) == 2]
     if not pairs:
         return
-    h0all = data.get("session_host_t0", np.full(n, np.nan))
     P, Y = [], []
     for i, j in pairs:
         h0 = np.array([h0all[i], h0all[j]])

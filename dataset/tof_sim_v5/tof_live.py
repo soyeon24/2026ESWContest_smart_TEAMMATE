@@ -10,10 +10,17 @@
 녹화 줄은 {"host_t": PC 시각(epoch s), "port": 포트, "raw": 원본 줄} 로 감싸 저장한다(포트 여러 개도 한 파일에서 구분).
 리플레이는 --ports live.jsonl (전부) 또는 --ports live.jsonl@COM5 (그 포트 줄만). 감싸지 않은 옛 녹화도 그대로 읽는다.
 
-필요: pip install pyserial onnxruntime. 두 펌웨어 형식을 다 읽는다:
+필요: pip install pyserial onnxruntime. 세 펌웨어 형식을 다 읽는다:
   - tof_logger(env:tof_logger) JSON 줄 ({"t":"tof",...}, 921600) — firmware/esp32_sensor_node/src/tof_logger/TofLine.cpp
   - VL53L8CX I2C bring-up(김태환, tof-bringup-full-4MB.bin) CSV 줄 — F,ms,64거리[,64상태] / P,ms,present,posture,…
     (펌웨어 문자열에서 복원한 형식이라 --echo 로 첫 줄을 꼭 확인한다. 상태값이 없으면 거리>0 을 유효로 본다)
+  - 운영 펌웨어 main 의 USB 'z' 줄 {"t":"tof_grid","ms","frame","sensors_ok","w","h","flags","s":[{"d","st"}|null,…]}
+    (firmware/esp32_sensor_node/src/transport/usb_json.cpp, 2026-10-21 추가). **포트 하나에 센서 둘**이 한 줄로 오고, 센서마다
+    모델을 하나씩 둔다(COM5#s0, COM5#s1). 센서당 5 Hz 라 10 Hz 스텝에서 한 프레임이 두 번 쓰인다(보드 서비스와 같음).
+    flags 는 펌웨어가 **이미 적용한** 방향(b0 rows · b1 cols)이라 여기서는 기본으로 안 뒤집는다(--flip-* 는 그 위에 더 뒤집기).
+    frame(u8) 로 순서를 본다: 차이 0..10 은 이어짐, 그 밖은 그 센서 모델 리셋. 거리 0 이하는 "없음"(-1).
+    Source._parse 는 이 줄도 예전처럼 {"t":"tof","ms","d","st","has_status"} 로 돌려준다(첫 센서). 센서 전부는 obj["frames"].
+    'z' 는 펌웨어 시리얼 콘솔에서 토글한다(PC 진단용 출력, tools/sensor_monitor.py 와 같음).
 보드율은 기본 자동(921600→115200→460800→230400). 펌웨어가 15 Hz 로 보내도 모델은 10 Hz 로만 돌린다
 (매 100 ms 마다 센서별 최신 프레임). 센서가 1 s 넘게 조용하면 그 센서는 빼고, 돌아오면 GRU 상태를 0 으로
 다시 시작한다 — 서비스와 같은 규칙.
@@ -64,7 +71,9 @@ def show_grid(path, frame, flip_rows, flip_cols):
     d = orient(np.asarray(frame["d"], np.int16).reshape(8, 8), flip_rows, flip_cols)
     st = orient(np.asarray(frame["st"], np.uint8).reshape(8, 8), flip_rows, flip_cols)
     ok = np.isin(st, VALID_STATUS) & (d >= 0)
-    print(f"--- {path}  (cm, '.' = 무효)  위쪽 줄이 천장 쪽, 왼쪽 열이 센서에서 볼 때 왼쪽이어야 한다")
+    fw = frame.get("fw_flags")
+    fw_s = "" if fw is None else f"  펌웨어가 이미 적용: rows={bool(fw & 1)} cols={bool(fw & 2)}"
+    print(f"--- {path}  (cm, '.' = 무효)  위쪽 줄이 천장 쪽, 왼쪽 열이 센서에서 볼 때 왼쪽이어야 한다{fw_s}")
     for r in range(8):
         print("   " + " ".join(f"{d[r, c] // 10:4d}" if ok[r, c] else "   ." for c in range(8)))
 
@@ -110,11 +119,13 @@ class Source(threading.Thread):
         self.echo, self.echo_left = echo, 3          # --echo: 안내·규칙 줄 전부 + 프레임 줄 처음 3개
         self.rule, self.info = "", ""
         self.lock = threading.Lock()
-        self.latest = None          # (frame dict, rx_time)
+        self.latest = None          # (frame dict, rx_time) — 첫 센서(예전 한 포트 = 한 센서 코드용)
+        self.latest_by = {}         # 센서 키(None = 포트가 곧 센서, 0/1 = tof_grid 의 물리 센서) -> (frame dict, rx_time)
         self.frames = 0
         self.hello = ""
         self.err = ""
         self.times = deque(maxlen=30)
+        self.times_by = {}          # 센서 키 -> deque(rx_time)
         # "녹화파일@COM5" 는 녹화 파일에서 그 포트 줄만 리플레이
         self.file, self.port_filter = path, None
         if not os.path.isfile(path) and "@" in path and os.path.isfile(path.rsplit("@", 1)[0]):
@@ -181,15 +192,43 @@ class Source(threading.Thread):
                 time.sleep(3)
 
     @staticmethod
+    def _grid_frames(obj):
+        """{"t":"tof_grid",...} -> 센서마다 {"t":"tof",...} (sensor = s 의 자리). 모양이 틀린 센서는 건너뛴다."""
+        try:
+            w, h, ms, fid = int(obj["w"]), int(obj["h"]), int(obj["ms"]), int(obj["frame"]) & 0xFF
+        except (KeyError, TypeError, ValueError):
+            return []
+        flags = int(obj.get("flags") or 0)
+        out = []
+        for i, s in enumerate(obj.get("s") or []):
+            if not isinstance(s, dict):
+                continue                                         # null = 그 센서 꺼짐
+            d, st = s.get("d") or [], s.get("st") or []
+            if w * h != 64 or len(d) != 64 or len(st) != 64:
+                continue
+            out.append({"t": "tof", "ms": ms, "seq": fid, "seq_bits": 8, "w": w, "h": h,
+                        "d": [int(v) if int(v) > 0 else -1 for v in d], "st": [int(v) for v in st],
+                        "has_status": True, "sensor": i, "fw_flags": flags})
+        return out
+
+    @staticmethod
     def _parse(text):
-        """두 펌웨어 형식. tof_logger JSON({"t":...}) 과 bring-up CSV(F,ms,64값[,64상태] / P,ms,present,posture,...)."""
+        """세 펌웨어 형식. tof_logger JSON({"t":...}), bring-up CSV(F,ms,64값[,64상태] / P,ms,present,posture,...),
+        main USB {"t":"tof_grid"}(센서 여럿 → 첫 센서를 예전 모양으로, 전부는 "frames")."""
         text = text.strip()
         if text.startswith('{"t":'):
             try:
                 obj = json.loads(text)
             except ValueError:
                 return None
-            return obj if isinstance(obj, dict) else None
+            if not isinstance(obj, dict):
+                return None
+            if obj.get("t") == "tof_grid":
+                frames = Source._grid_frames(obj)
+                if not frames:
+                    return {"t": "tof_grid", "ms": obj.get("ms", 0), "frames": []}
+                return dict(frames[0], frames=frames)
+            return obj
         if len(text) > 2 and text[1] == "," and text[0] in "FP":
             parts = text.split(",")
             try:
@@ -264,15 +303,24 @@ class Source(threading.Thread):
             self.err = f"{obj.get('where')} code {obj.get('code')}"
         elif kind == "tof" and len(obj.get("d", [])) == 64 and len(obj.get("st", [])) == 64:
             now = time.monotonic()
+            frames = obj.get("frames") or [obj]
             with self.lock:
-                self.latest = (obj, now)
+                self.latest = (frames[0], now)
+                for f in frames:
+                    self.latest_by[f.get("sensor")] = (f, now)
+            for f in frames:
+                self.times_by.setdefault(f.get("sensor"), deque(maxlen=30)).append(now)
             self.frames += 1
             self.times.append(now)
 
-    def hz(self):
-        if len(self.times) < 2:
+    def hz(self, key="__all__"):
+        t = self.times if key == "__all__" else self.times_by.get(key, ())
+        if len(t) < 2:
             return 0.0
-        return (len(self.times) - 1) / max(1e-6, self.times[-1] - self.times[0])
+        return (len(t) - 1) / max(1e-6, t[-1] - t[0])
+
+    def name(self, key):
+        return self.path if key is None else f"{self.path}#s{key}"
 
 
 def main():
@@ -315,12 +363,29 @@ def main():
             sys.exit("--forward 는 --ports 와 같은 개수여야 합니다")
         fwd = [(h.rsplit(":", 1)[0], int(h.rsplit(":", 1)[1])) for h in hp]
     sources = [Source(p, args.baud, record, args.fast, args.echo, f) for p, f in zip(ports, fwd)]
-    nets = [OnnxStep(model) for _ in ports]
-    for n in nets:
-        n.flip_rows, n.flip_cols = args.flip_rows, args.flip_cols
+    # 센서 채널 = (포트 번호, 센서 키). 포트 하나에 센서 하나(키 None)가 보통이고, main 의 tof_grid 는 포트 하나에 0·1 둘.
+    # 채널은 첫 프레임이 올 때 생긴다. 채널마다 모델(GRU 상태) 하나.
+    nets, online_prev, last_seq = {}, {}, {}
+    probe = OnnxStep(model)
     last_show = 0.0
-    C = nets[0].classes
+    C = probe.classes
     labels = LABELS[:C]
+
+    def net_for(ch):
+        if ch not in nets:
+            nets[ch] = probe if not nets else OnnxStep(model)
+            nets[ch].flip_rows, nets[ch].flip_cols = args.flip_rows, args.flip_cols
+            nets[ch].reset()
+        return nets[ch]
+
+    def rewound(frame, prev):
+        """ESP32 재부팅·큰 유실이면 True. frame_id(u8) 는 순환하므로 차이로 본다(서비스와 같은 규칙)."""
+        if prev is None:
+            return False
+        if frame.get("seq_bits") == 8:
+            return ((int(frame["seq"]) - prev) & 0xFF) > 10
+        return int(frame["seq"]) < prev
+
     for s in sources:
         s.start()
     print(f"sensors {ports}  rate {args.rate} Hz  fusion {args.fusion}  (Ctrl+C 로 종료)")
@@ -328,8 +393,6 @@ def main():
     period = 1.0 / args.rate
     stale = args.stale / (20.0 if args.fast else 1.0)
     next_t = time.monotonic()
-    online_prev = [False] * len(ports)
-    last_seq = [None] * len(ports)
     last_label = None
     smooth = None
     alpha = 1.0 / (10.0 if args.fast else args.rate)   # 1초 EMA (모델 스텝 기준 10개)
@@ -340,28 +403,30 @@ def main():
                 time.sleep(min(0.005, next_t - now))
                 continue
             next_t = now + period if now - next_t > 2 * period else next_t + period
+            channels = []
+            for si, s in enumerate(sources):
+                with s.lock:
+                    snap = dict(s.latest_by)
+                for key in sorted(snap, key=lambda k: -1 if k is None else k):
+                    channels.append(((si, key), s, key, snap[key]))
             if args.show and now - last_show >= 1.0:
                 last_show = now
-                for s in sources:
-                    with s.lock:
-                        lt = s.latest
-                    if lt is not None:
-                        show_grid(s.path, lt[0], args.flip_rows, args.flip_cols)
+                for _, s, key, lt in channels:
+                    show_grid(s.name(key), lt[0], args.flip_rows, args.flip_cols)
             acc, online, per = np.zeros(C), 0, []
-            for i, (s, net) in enumerate(zip(sources, nets)):
-                with s.lock:
-                    latest = s.latest
-                on = latest is not None and (now - latest[1]) <= stale
+            for ch, s, key, latest in channels:
+                net = net_for(ch)
+                on = (now - latest[1]) <= stale
                 if not on:
-                    if online_prev[i]:
+                    if online_prev.get(ch):
                         net.reset()
-                    online_prev[i] = False
+                    online_prev[ch] = False
                     per.append("  --  ")
                     continue
-                if not online_prev[i] or (last_seq[i] is not None and latest[0]["seq"] < last_seq[i]):
+                if not online_prev.get(ch) or rewound(latest[0], last_seq.get(ch)):
                     net.reset()        # 새로 붙었거나 ESP32 재부팅
-                online_prev[i] = True
-                last_seq[i] = latest[0]["seq"]
+                online_prev[ch] = True
+                last_seq[ch] = int(latest[0]["seq"])
                 logits = net.step(latest[0]["d"], latest[0]["st"])
                 p = np.exp(logits - logits.max()); p /= p.sum()
                 acc += np.log(p + 1e-6) if args.fusion == "logprob" else p
@@ -378,7 +443,7 @@ def main():
                 smooth = fused if smooth is None else smooth + alpha * (fused - smooth)
                 k = int(smooth.argmax())
                 line = (f"{labels[k]:13s} {KO[labels[k]]:7s} {smooth[k]:.2f} | " + " | ".join(per) +
-                        " | " + " ".join(f"{s.hz():4.1f}Hz" for s in sources) +
+                        " | " + " ".join(f"{s.name(key)} {s.hz(key):4.1f}Hz" for _, s, key, _ in channels) +
                         "".join(f" rule:{s.rule}" for s in sources if s.rule) +
                         "".join(f" fwd:{s.fwd_sent}" for s in sources if s.forward is not None))
                 label_now = labels[k]

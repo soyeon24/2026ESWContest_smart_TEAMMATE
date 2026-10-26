@@ -4,16 +4,25 @@
     python real_from_record.py --labels real_protocol_v1.csv --out runs/real_a.npz rec.jsonl@COM5 rec.jsonl@COM6
     python real_from_record.py --out runs/replay.npz replay_s0.jsonl replay_s1.jsonl     # sim replays carry "label"
     python real_from_record.py --score ../tof-sim_ubai_random/export_20261014_2206_best/posture_net.pt runs/real_20261015_a.npz
+    python real_from_record.py --score pc/posture_net.pt pc/posture_net_opt_ft_c128.pt -- runs/real_a.npz   # several models, same npz
     python train.py --run ... --real runs/real_20261015_a.npz                                  # scored at every eval
 
 Inputs are `tof_live.py --record` files. Its lines are wrapped as {"host_t": <epoch s>, "port": "COM5", "raw": "<line>"};
 every port in a file becomes its own sensor, sorted by port name (`file@COM5` takes that port only).
-Unwrapped lines (older recordings, tools/sim_to_toflines.py) are one sensor per file. Both firmware line formats are
-read with the same parser as tof_live.py: bring-up CSV `F,<ms>,<64 distances>[,<64 status>]` and tof_logger JSON.
+Unwrapped lines (older recordings, tools/sim_to_toflines.py) are one sensor per file. The firmware line formats are
+read with the same parser as tof_live.py: bring-up CSV `F,<ms>,<64 distances>[,<64 status>]`, tof_logger JSON, and
+(2026-10-21) firmware main's USB 'z' line {"t":"tof_grid",...,"s":[{"d","st"}|null, ...]} — two sensors on one port,
+which become two sensors named `<file>@<PORT>#s0` / `#s1` (physical sensor A / B). Its grid is already oriented by the
+firmware (flags = transforms it applied), so --flip-* are extra flips on top, as in tof_live.py.
+(2026-10-26) Pi 4 board polling: lines holding the posture service's / relay's `GET /raw` JSON
+({"sensors":[{"id","have","ts_ms","frame_seq","flags","dist_mm":[64],"status":[64]},…]}), either as the line itself
+(with an optional top-level "host_t") or wrapped as {"host_t":…, "raw": <that object or its text>}. Each sensor id becomes
+`<port or raw>#s<id>`, a frame polled twice (same ts_ms) is kept once, and the grid is taken as received — the
+standard 0x05 grid is already oriented by the firmware (same as the 'z' line), so no flip unless --flip-* says so.
 
-Frames are taken the way the Pi 4 service takes them: every 100 ms the newest frame (the firmware ranges at 15 Hz,
-the model runs at 10 Hz). A gap of more than 1 s or a clock going backwards starts a new session, as the service
-then restarts the model state.
+Frames are taken the way the Pi 4 service takes them: every 100 ms the newest frame (the bring-up firmware ranges at
+15 Hz, main sends 5 Hz per sensor so each frame is used twice; the model runs at 10 Hz). A gap of more than 1 s or a
+clock going backwards starts a new session, as the service then restarts the model state.
 
 Labels come from a per-line "label" field (sim replays) or from --labels, a CSV `start_s,end_s,label[,what]`
 (label = a name in tofsim.session.LABELS, or "skip" / "transition"). Its times are seconds from --t0 (the
@@ -51,6 +60,24 @@ def split_arg(arg: str):
     return arg, None
 
 
+def raw_http_frames(obj: dict):
+    """Pi 4 자세 서비스(atlas-tof, TOFPOSTURE_RAW_HTTP)·uart_relay_board 의 `GET /raw` JSON 하나 → [(센서 id, ms, dist, status)].
+    격자는 받은 그대로다. 표준 0x05 는 펌웨어가 flags(b0 flip_rows, b1 flip_cols)대로 이미 돌려 보낸 배치이고, 이것이 모델 입력
+    방향이다(펌웨어 USB 'z' 줄과 같다). 그래서 여기서는 더 뒤집지 않고, --flip-* 만 그 위에 더한다. 없음 = -1·0.
+    시각은 센서 프레임의 ts_ms(보드 단조 시계), 없으면 uart_seq·frame_seq 순서를 100 ms 로 본다."""
+    out = []
+    for s in obj.get("sensors") or []:
+        if not s.get("have") or len(s.get("dist_mm") or []) != 64:
+            continue
+        ms = s.get("ts_ms")
+        if ms is None:
+            ms = 100 * int(s.get("uart_seq") or s.get("frame_seq") or 0)
+        st = s.get("status") or [5] * 64
+        out.append((int(s.get("id", 0)), int(ms), np.asarray(s["dist_mm"], np.int16).reshape(8, 8),
+                    np.asarray(st, np.uint8).reshape(8, 8)))
+    return out
+
+
 def read_sensors(path: str, port_filter, flip_rows: bool, flip_cols: bool):
     """{port: [(ms, dist[8,8] int16, status[8,8] uint8, label or None, host_t or None)]}, has_status, first host_t.
     Ports keep the order they first appear in; unwrapped lines go under the port None. The first host time is over
@@ -67,20 +94,46 @@ def read_sensors(path: str, port_filter, flip_rows: bool, flip_cols: bool):
                     w = json.loads(line)
                 except ValueError:
                     continue
-                port, host_t, line = w.get("port"), w.get("host_t"), w.get("raw", "")
+                port, host_t, line = w.get("port"), w.get("host_t"), w.get("raw", w if "sensors" in w else "")
                 if host_t is not None and (first_host is None or host_t < first_host):
                     first_host = host_t
             if port_filter is not None and port != port_filter:
                 continue
+            raw_http = line if isinstance(line, dict) else None
+            if raw_http is None and isinstance(line, str) and line.startswith("{") and '"dist_mm"' in line:
+                try:
+                    raw_http = json.loads(line)
+                except ValueError:
+                    raw_http = None
+            if raw_http is not None and "sensors" in raw_http:
+                if host_t is None and raw_http.get("host_t") is not None:
+                    host_t = raw_http["host_t"]
+                    if first_host is None or host_t < first_host:
+                        first_host = host_t
+                for sid, ms, d, st in raw_http_frames(raw_http):
+                    key = f"{port or 'raw'}#s{sid}"
+                    prev = sensors.get(key)
+                    if prev and prev[-1][0] == ms:
+                        continue                                         # 폴링(10 Hz)이 같은 프레임(센서 5 Hz)을 또 읽음
+                    d = orient(d, flip_rows, flip_cols)
+                    st = orient(st, flip_rows, flip_cols)
+                    d = np.where(d > 0, d, -1).astype(np.int16)
+                    sensors.setdefault(key, []).append((ms, d, st, None, host_t))
+                continue
+            if not isinstance(line, str):
+                continue
             obj = Source._parse(line)
             if not obj or obj.get("t") != "tof" or len(obj.get("d", [])) != 64 or len(obj.get("st", [])) != 64:
                 continue
-            if obj.get("has_status") is False:
-                has_status = False
-            d = orient(np.asarray(obj["d"], np.int16).reshape(8, 8), flip_rows, flip_cols)
-            st = orient(np.asarray(obj["st"], np.uint8).reshape(8, 8), flip_rows, flip_cols)
-            d = np.where(d > 0, d, -1).astype(np.int16)          # the npz convention: no target = -1
-            sensors.setdefault(port, []).append((int(obj["ms"]), d, st, obj.get("label"), host_t))
+            # firmware main's USB {"t":"tof_grid"} carries both sensors in one line: one sensor each, keyed PORT#s<i>
+            for f in obj.get("frames") or [obj]:
+                if f.get("has_status") is False:
+                    has_status = False
+                d = orient(np.asarray(f["d"], np.int16).reshape(8, 8), flip_rows, flip_cols)
+                st = orient(np.asarray(f["st"], np.uint8).reshape(8, 8), flip_rows, flip_cols)
+                d = np.where(d > 0, d, -1).astype(np.int16)          # the npz convention: no target = -1
+                key = port if f.get("sensor") is None else f"{port or ''}#s{f['sensor']}"
+                sensors.setdefault(key, []).append((int(f["ms"]), d, st, f.get("label"), host_t))
     return sensors, has_status, first_host
 
 
@@ -207,48 +260,76 @@ def convert(args):
 
 
 def score(args):
+    for path in args.score:
+        score_one(path, args.files[0])
+
+
+def score_one(model_path: str, npz_path: str):
     import torch
 
     from tofsim.data import to_input
     from tofsim.evaluate import evaluate, format_eval
     from tofsim.model import PostureNet
 
-    ck = torch.load(args.score, map_location="cpu", weights_only=False)
+    ck = torch.load(model_path, map_location="cpu", weights_only=False)
     sd = ck.get("model") or ck.get("state_dict")
     labels = list(ck.get("labels", LABELS))
     net = PostureNet(8, 8, len(labels), hidden=int(sd["gru.weight_hh_l0"].shape[1]))
     net.load_state_dict(sd)
     net.eval()
-    with np.load(args.files[0], allow_pickle=False) as z:
+    with np.load(npz_path, allow_pickle=False) as z:
         data = {k: z[k] for k in z.files}
     if "forward_head" in LABELS and "forward_head" not in labels:
         # a model without forward_head can do no better than "upright" there: score it that way
         data["label"] = np.where(data["label"] == LABELS.index("forward_head"), LABELS.index("upright"), data["label"])
     names = [str(s) for s in data.get("sources", [])]
-    print(f"model {args.score}: {len(labels)} labels, hidden {net.gru.hidden_size}")
+    print(f"model {model_path}: {len(labels)} labels, hidden {net.gru.hidden_size}")
     print("per sensor:", format_eval(evaluate(net, data)))
     starts = list(data["starts"]) + [len(data["label"])]
-    if len(starts) != 3:
+    n = len(starts) - 1
+    # the board's fusion (sum of log-probabilities) over the two sensors of the same stretch of time. Two sessions: those
+    # two. More: sessions are paired by their run number (the "#<r>" convert() appends: a gap or reboot cut both sensors
+    # at the same place), so rec@s0#1 goes with rec@s1#1.
+    if n == 2:
+        pairs = [(0, 1)]
+    else:
+        runs = {}
+        for i, nm in enumerate(names[:n]):
+            runs.setdefault(nm.rsplit("#", 1)[1] if "#" in nm else "", []).append(i)
+        pairs = [tuple(v) for _, v in sorted(runs.items()) if len(v) == 2]
+    if not pairs:
         return
-    # two sessions: also the board's fusion (sum of log-probabilities), lined up on the host clock when known
-    h0 = data.get("session_host_t0", np.array([np.nan, np.nan]))
-    shift = int(round((h0[1] - h0[0]) * 10)) if np.all(np.isfinite(h0)) else 0     # frames sensor 1 starts later
-    a0, b0 = starts[0] + max(0, shift), starts[1] + max(0, -shift)
-    T = min(starts[1] - a0, starts[2] - b0)
-    if T <= 45:
-        print("both sensors: too little overlap to fuse"); return
-    logp = []
-    with torch.no_grad():
-        for s0, s in ((starts[0], a0), (starts[1], b0)):            # run each from its own start, keep the overlap
-            x = torch.from_numpy(to_input(data["dist"][s0:s + T], data["status"][s0:s + T]))[None]
-            logp.append(torch.log_softmax(net(x)[0][0], -1).numpy()[s - s0:])
-    pred = (logp[0] + logp[1]).argmax(-1)
-    y = data["label"][a0:a0 + T].astype(int)
-    keep = ((data["flags"][a0:a0 + T] | data["flags"][b0:b0 + T]) & FLAG_TRANSITION) == 0
-    keep[:45] = False
-    acc = float((pred[keep] == y[keep]).mean()) if keep.any() else float("nan")
-    rec = {LABELS[c]: round(float((pred[keep & (y == c)] == c).mean()), 2) for c in np.unique(y[keep])}
-    print(f"both sensors ({' + '.join(names[:2])}, offset {shift} frames): acc {acc:.3f} | recall {rec}")
+    h0all = data.get("session_host_t0", np.full(n, np.nan))
+    P, Y = [], []
+    for i, j in pairs:
+        h0 = np.array([h0all[i], h0all[j]])
+        shift = int(round((h0[1] - h0[0]) * 10)) if np.all(np.isfinite(h0)) else 0     # frames sensor j starts later
+        a0, b0 = starts[i] + max(0, shift), starts[j] + max(0, -shift)
+        T = min(starts[i + 1] - a0, starts[j + 1] - b0)
+        if T <= 45:
+            print(f"both sensors ({names[i]} + {names[j]}): too little overlap to fuse")
+            continue
+        logp = []
+        with torch.no_grad():
+            for s0, s in ((starts[i], a0), (starts[j], b0)):        # run each from its own start, keep the overlap
+                x = torch.from_numpy(to_input(data["dist"][s0:s + T], data["status"][s0:s + T]))[None]
+                logp.append(torch.log_softmax(net(x)[0][0], -1).numpy()[s - s0:])
+        pred = (logp[0] + logp[1]).argmax(-1)
+        y = data["label"][a0:a0 + T].astype(int)
+        keep = ((data["flags"][a0:a0 + T] | data["flags"][b0:b0 + T]) & FLAG_TRANSITION) == 0
+        keep[:45] = False
+        acc = float((pred[keep] == y[keep]).mean()) if keep.any() else float("nan")
+        rec = {LABELS[c]: round(float((pred[keep & (y == c)] == c).mean()), 2) for c in np.unique(y[keep])}
+        print(f"both sensors ({names[i]} + {names[j]}, offset {shift} frames): acc {acc:.3f} | recall {rec}")
+        P.append(pred[keep]); Y.append(y[keep])
+    if len(P) > 1:
+        p, y = np.concatenate(P), np.concatenate(Y)
+        f1 = []
+        for c in np.unique(y):
+            tp = float(np.sum((p == c) & (y == c)))
+            f1.append(2 * tp / max(1.0, float(np.sum(p == c) + np.sum(y == c))))
+        rec = {LABELS[c]: round(float((p[y == c] == c).mean()), 2) for c in np.unique(y)}
+        print(f"both sensors, all {len(P)} pairs: acc {float((p == y).mean()):.3f} macroF1 {float(np.mean(f1)):.3f} | recall {rec}")
 
 
 def main():
@@ -260,7 +341,8 @@ def main():
     ap.add_argument("--t0", help="protocol_start_*.txt from protocol_timer.py (or an epoch time): label time zero")
     ap.add_argument("--flip-rows", action="store_true", help="as tof_live.py --flip-rows")
     ap.add_argument("--flip-cols", action="store_true", help="as tof_live.py --flip-cols")
-    ap.add_argument("--score", help="checkpoint or export posture_net.pt to score on the npz given as the file")
+    ap.add_argument("--score", nargs="+", help="checkpoint(s) or export posture_net.pt to score on the npz given as the file "
+                    "(several: each is scored in turn; end the list with -- before the npz)")
     args = ap.parse_args()
     if args.score:
         score(args)

@@ -23,11 +23,11 @@ face_down turns on at share >= 0.7 and stays on while share >= 0.4.
 Optional upright substitution (separate switch): "seated" = up >= 8 and topA <= 3 and topB <= 3. When face_down is
 off, the model says misplaced and the frame is seated, report upright.
 
-Checked on the 10-26 left recordings (fork data/real-20261026; board ticks, 2 s cut at each step edge):
-  face_down steps 80 % (left1), 82 % (left2), 82 % (left2_facedown); the first frame on 12-13 s after the step
-  prompt, 3-4 s after the body settles. check_close30 face-down stretches 99 %, its sitting stretch 0 %.
-  False face_down in every other labelled step 0 % (upright, lean_forward incl. writing, forward_head, recline,
-  chin_rest, drowsy, away), apart from two label-timing slips where the user was still or already lying down.
+Checked on the 10-26 left recordings (fork data/real-20261026; frames on their own ESP clock, 2 s cut at each step
+edge): face_down steps 100 % in left1, left2 and left2_facedown, on 2.0-2.2 s after the step prompt;
+check_close30 face-down stretches 100 %, its sitting stretch 0 %. False face_down in every other labelled step 0 %
+(upright, lean_forward incl. writing, forward_head, recline, chin_rest, drowsy, away); left1 step 11 ("upright",
+710-740 s) reads 100 % because the user lay face down there.
   One person, one placement (about 0.65 m), one day: dlo <= 0.60 m is a distance for this setup (face-down
   0.45-0.56 m, recline 0.71-0.74 m). Re-check with tools/aim_check.py if the demo desk or chair changes.
 
@@ -126,9 +126,13 @@ class FaceDownRule:
 
 
 def read_raw(path: str):
-    """record_board.py rec_raw.jsonl -> (pairs [(ts_ms, (dA, sA), (dB, sB))] in time order, board states)."""
+    """record_board.py rec_raw.jsonl -> (pairs [(ts_ms, (dA, sA), (dB, sB))] in time order, board states, offsets).
+
+    Two clocks: /raw ts_ms is the ESP32's millis, /api/state ts_ms the Pi service's; on 10-26 they were ~11 s apart.
+    offsets = {"raw": host - ESP ms / 1000 (from each frame's poll time minus its age), "state": host - Pi ms / 1000}."""
     fr = {0: {}, 1: {}}
     states = []
+    raw_off = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             o = json.loads(line)
@@ -137,11 +141,14 @@ def read_raw(path: str):
                 if s.get("have") and len(s.get("dist_mm") or []) == 64:
                     fr[s["id"]][int(s["ts_ms"])] = ([-1 if v is None else v for v in s["dist_mm"]],
                                                      [255 if v is None else v for v in s["status"]])
+                    raw_off.append(o["host_t"] - (int(s["ts_ms"]) + float(s.get("age_ms") or 0)) / 1000.0)
             elif o.get("kind") == "state":
                 st = o["state"]
                 states.append((o["host_t"], int(st["ts_ms"]), st.get("posture") or ""))
     pairs = [(t, fr[0][t], fr[1][t]) for t in sorted(set(fr[0]) & set(fr[1]))]
-    return pairs, states
+    offsets = {"raw": float(np.median(raw_off)) if raw_off else 0.0,
+               "state": float(np.median([h - ts / 1000.0 for h, ts, _ in states])) if states else 0.0}
+    return pairs, states, offsets
 
 
 def read_labels(path: str):
@@ -161,11 +168,11 @@ def main():
     ap.add_argument("--margin", type=float, default=2.0, help="seconds cut at each step edge")
     ap.add_argument("--csv", help="write every evaluated frame here (golden file for the C++ port)")
     args = ap.parse_args()
-    pairs, states = read_raw(args.rec)
+    pairs, states, offs = read_raw(args.rec)
     if not pairs:
         raise SystemExit("no frame pairs")
-    # host time = board ms / 1000 + off (from the /api/state polls); labels count from --t0
-    off = float(np.median([h - ts / 1000.0 for h, ts, _ in states])) if states else 0.0
+    # host time = ESP ms / 1000 + off for frames, Pi ms / 1000 + off_state for board states; labels count from --t0
+    off, off_state = offs["raw"], offs["state"]
     t0 = float(open(args.t0, encoding="utf-8").readline().split()[0]) if args.t0 else pairs[0][0] / 1000.0 + off
     rule = FaceDownRule()
     rows = []
@@ -183,7 +190,7 @@ def main():
     on = np.array([r["on"] for r in rows])
     print(f"{len(rows)} frame pairs, face_down on {on.mean():.1%} of frames")
     if args.labels:
-        bt = np.array([ts / 1000.0 + off - t0 for _, ts, _ in states])
+        bt = np.array([ts / 1000.0 + off_state - t0 for _, ts, _ in states])
         bp = np.array([p for _, _, p in states])
         for a, b, lab in read_labels(args.labels):
             m = (t >= a + args.margin) & (t < b - args.margin)

@@ -52,7 +52,7 @@ class NullStream : public Stream {
 NullStream null_diag;
 Stream& diag = null_diag;  // 진단·JSON 은 버린다
 #else
-Stream& diag = diag;     // 기본: USB 는 JSON 진단 + 한 글자 명령
+Stream& diag = Serial;   // 기본: USB 는 JSON 진단 + 한 글자 명령
 #endif
 
 TofArrayConfig tofConfig() {

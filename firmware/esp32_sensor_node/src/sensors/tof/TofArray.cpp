@@ -236,9 +236,20 @@ void TofArray::parkStuckSensor(Print *log) {
   // 9.3 s(2 s 폴 + 5 s stop_ranging + 2 s 폴)를 버리고 실패한다. 0x56 으로 "치우기"는 한 번도 성공한 적이 없다.
   const bool a_kept = cfg_.count > 1 && cfg_.address[0] != VL53L8CX_DEFAULT_I2C_ADDRESS && acks(cfg_.address[0]);
   if (a_kept) {
-    // A 는 목표 주소, B 는 기본 주소 — 이전 부팅이 끝까지 갔고 주소가 겹치지 않는다. startSensor 가 LPn 을 올린 뒤
-    // 각자의 주소로 init 하면 된다(측거 중이어도 한 번에 된다).
-    if (log != nullptr) log->println(F("tof: sensors keep previous addresses (ESP32 soft reset) -> no park"));
+    // A 는 목표 주소, B 는 기본 주소 — 이전 부팅이 끝까지 갔다. 10-17 엔 측거 중이어도 각자 주소로 init 이 됐지만
+    // 11-02 실기에서는 측거 중인 A 의 init 이 8 s 시간 초과로 실패했고(B 만 켜짐), 400 kHz 에서도 같았다.
+    // 둘 다 SW 리부트로 미초기화로 되돌려 LPn LOW 를 따르게 한 뒤, 전원 재투입과 같은 경로(A 먼저 0x54 로)로 간다.
+    VL53L8CX a(cfg_.wire, -1);
+    a.begin(cfg_.address[0]);
+    softReboot(a);
+    VL53L8CX b(cfg_.wire, -1);
+    b.begin(VL53L8CX_DEFAULT_I2C_ADDRESS);
+    softReboot(b);
+    if (log != nullptr) {
+      log->print(F("tof: sensors kept previous addresses (ESP32 soft reset) -> SW reboot both, acks after="));
+      log->print(acks(cfg_.address[0]) ? 1 : 0);
+      log->println(acks(VL53L8CX_DEFAULT_I2C_ADDRESS) ? 1 : 0);
+    }
     return;
   }
   // 목표 주소는 비었는데 0x52 가 응답: 센서 하나(또는 둘)가 0x52 에서 LPn 을 무시하고 있다(이전 부팅이 A 의 주소
@@ -348,8 +359,9 @@ void TofArray::poll(uint32_t now_ms) {
   // 0x52 로 찌를 수 없으니 건너뛴다(B 가 내려가면 그때 올린다).
   for (uint8_t i = 0; i < cfg_.count; ++i) {
     if (ok_[i] || now_ms - last_try_ms_[i] < cfg_.retry_ms) continue;
+    // 11-02: A 가 이미 자기 주소(0x54)에 있으면 B 와 겹치지 않으니 막지 않는다(init 만 실패했던 A 가 영영 재시도되지 않았다).
     const bool conflict = (i == 0 && !addressed_[0] && cfg_.count > 1 && ok_[1] &&
-                           cfg_.address[1] == VL53L8CX_DEFAULT_I2C_ADDRESS);
+                           cfg_.address[1] == VL53L8CX_DEFAULT_I2C_ADDRESS && !acks(cfg_.address[0]));
     if (conflict) {
       last_try_ms_[i] = now_ms;
       continue;

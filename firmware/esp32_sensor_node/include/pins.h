@@ -51,6 +51,7 @@ constexpr uint32_t kTofI2cHz = 400000;    // 11-02: 1 MHz 에서 A init 이 8 s 
 constexpr uint8_t kTofRangingHz = 15;     // 8×8 최대
 constexpr uint16_t kTofAddressA = 0x54;   // 8-bit. A 만 주소를 바꾸고 B 는 기본 0x52 를 쓴다
 constexpr uint32_t kTofRetryMs = 5000;
+constexpr uint32_t kLoopWatchdogSec = 45;  // 루프가 이만큼 멈추면 재부팅(11-02, main.cpp esp_task_wdt)
 constexpr uint32_t kTofFeaturePeriodMs = 200;   // UART TYPE 0x03 (tof_feature) 5 Hz
 constexpr uint32_t kTofPosturePeriodMs = 1000;  // UART TYPE 0x04 + USB JSON 1 Hz
 // UART TYPE 0x05 원본 8×8, 센서별 프레임 5 Hz. 센서 2개 = 프레임 2개(각 200 B payload, wire ≈ 215 B) → 약 2.2 kB/s,

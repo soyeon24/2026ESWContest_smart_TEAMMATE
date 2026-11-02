@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_task_wdt.h>
 
 #include "pins.h"
 #include "sensors/c1001/C1001Passive.h"
@@ -309,9 +310,14 @@ void setup() {
   // ToF 는 센서당 init(펌웨어 업로드)에 수 초가 걸린다. 실패한 센서는 loop 에서 5 s 마다 다시 올린다.
   tof.begin(millis(), &diag);
   printTofStatus();
+  // 11-02 실기: Pi 4 에 꽂으면 3 분쯤 뒤 ESP32 가 출력 없이 멈춘 채 서 있었다(재부팅도 안 함 — 전원 의심). 루프가
+  // kLoopWatchdogSec 동안 안 돌면 스스로 재부팅한다. C1001 늦은 begin·ToF 재시도가 한 번에 수십 초를 먹을 수 있어 넉넉히.
+  esp_task_wdt_init(kLoopWatchdogSec, true);
+  esp_task_wdt_add(nullptr);
 }
 
 void loop() {
+  esp_task_wdt_reset();
   handleUsbCommands();
   // 파서는 논블로킹이다. 주기와 무관하게 매 루프에서 밀린 바이트를 소화하고,
   // 판정기는 값이 실제로 갱신된 것만 소비한다. 보고가 끊기면 질의로 깨운다.

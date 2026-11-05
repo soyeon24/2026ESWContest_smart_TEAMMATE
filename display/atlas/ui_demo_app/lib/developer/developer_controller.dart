@@ -52,6 +52,7 @@ class DeveloperController extends ChangeNotifier {
     btLinks.addListener(_changed);
     live.addListener(_linkChanged);
     _messages = live.messages.listen(receive);
+    live.onLocalMusicStop = () => unawaited(_stopMusicLocally());
     // V32: 음악 상태 → hub `deskmate/display/audio`(retain). 곡만 바꾸면 스트림이 없어 1초 타이머가 챙긴다.
     musicReporter = MusicStateReporter(this.music, _publishMusic);
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -192,6 +193,22 @@ class DeveloperController extends ChangeNotifier {
       parseError = error.runtimeType.toString();
       _changed();
     }
+  }
+
+  /// V58: 자동 실행 카드의 '소리 끄기' — hub 되돌리기를 기다리지 않고 앱 음악을 멈춘다. 결과는 hub 에 보내지 않는다
+  /// (hub 가 낸 명령이 아니다). 음악 상태(deskmate/display/audio)는 바로 다시 알린다.
+  Future<void> _stopMusicLocally() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await feedback.handleControlCommand({
+      'command_id': 'local-undo-$now',
+      'target_id': 'music',
+      'operation': 'set_music',
+      'value': {'on': false},
+      'gate': 'undo',
+      'requires_confirmation': false,
+      'expires_ts_ms': now + 15000,
+    });
+    if (!_disposed) musicReporter.report();
   }
 
   Future<void> _execute(Map<String, dynamic> data) async {

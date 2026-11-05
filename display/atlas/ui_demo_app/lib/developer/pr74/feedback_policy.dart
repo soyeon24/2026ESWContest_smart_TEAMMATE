@@ -25,8 +25,17 @@ List<int> ilinkFrame(List<int> body) {
   return [...head, checksum];
 }
 
-/// 국면 조명. [rgb] 를 주면 시작·집중·회복의 색을 그 색으로 칠한다(V57: 프로필 '빛의 온도').
-List<List<int>> ilinkFramesForPhase(String phase, {List<int>? rgb}) {
+/// 무드등 자체 흰빛(색온도 모드 2단). RGB 로 흰색을 흉내 내면(255,230,200) 이 램프에서는 연보라로 보였다(V63, 11-06).
+final ilinkWhiteFrame = ilinkFrame([0x01, 0x08, 0x09, 0x02]);
+
+/// 국면 조명. [white] 면 시작·집중·회복을 램프 자체 흰빛으로(V63). [rgb] 를 주면 그 색으로 칠한다(V57).
+List<List<int>> ilinkFramesForPhase(String phase,
+    {List<int>? rgb, bool white = false}) {
+  if (white &&
+      (phase == 'start' || phase == 'focus' || phase == 'recovery')) {
+    final frames = ilinkFramesForPhase(phase);
+    return [...frames.sublist(0, frames.length - 1), ilinkWhiteFrame];
+  }
   if (rgb != null &&
       (phase == 'start' || phase == 'focus' || phase == 'recovery')) {
     final frames = ilinkFramesForPhase(phase);
@@ -503,9 +512,15 @@ class FeedbackCoordinator {
   List<int>? fatigueRgb;
   void setFatigueColor(double warmth) => fatigueRgb = ilinkRgbForWarmth(warmth);
 
-  /// V57: 시작·집중·회복 조명 색 — 프로필 '빛의 온도'. null 이면 예전 고정 색(회복 파랑 등).
+  /// V57: 시작·집중·회복 조명 색. null 이면 예전 고정 색(회복 파랑 등).
   List<int>? calmRgb;
-  void setCalmColor(double warmth) => calmRgb = ilinkRgbForWarmth(warmth);
+
+  /// V62(11-06 사용자 "평소는 흰색이잖아"): 평소(시작·집중·회복) 조명은 사람과 상관없이 흰빛. V57 은 프로필 '빛의 온도'로
+  /// 칠해 태환(빛의 온도 0.0)이 평소에도 주황빛 빨강(255,120,40)이었다. 빛의 온도는 이제 피로 단계 색([fatigueRgb])에만 쓴다.
+  /// V63(11-06 사용자 "연보라는 왜 자꾸 떠 … 태환은 흰색과 파랑 2가지만"): RGB 흰색(이 값)이 램프에서 연보라로 보여, 실제로는
+  /// 램프 자체 흰빛([ilinkWhiteFrame])을 쓴다. 이 값은 열쇠(사람이 바뀌면 다시 칠하기)에만 남는다.
+  static const calmWhite = [255, 230, 200];
+  void setCalmColor(double warmth) => calmRgb = calmWhite;
 
   /// V57: 집중 중 음악은 이 배율로 잔잔하게(기기 볼륨은 그대로). 깨우기·hub 명령은 1.
   static const focusMusicGain = .45;
@@ -515,6 +530,21 @@ class FeedbackCoordinator {
 
   /// 지금 프로필이 [wakeSongProfiles] 인지. [setMusicProfile] 이 정한다.
   bool wakeSong = false;
+
+  /// V59(11-05 사용자 "태환은 깨우기 조명 파랑, 민경은 조명 보라색으로"): 이름으로 정한 깨우기 조명 색(iLink RGB).
+  /// 피로 단계에 hub 가 무드등을 켜거나 밝힐 때 '환기할 때 빛의 온도'(fatigueRgb) 대신 이 색을 쓴다. 표에 없는 사람은 그대로.
+  static const wakeLampColors = {
+    '태환': [30, 80, 255], // 파랑
+    '민경': [150, 40, 255], // 보라
+  };
+
+  /// 지금 프로필의 깨우기 조명 색. 없으면 null([fatigueRgb] 를 쓴다). [setMusicProfile] 이 이름으로 정한다.
+  List<int>? wakeRgb;
+
+  /// V61(11-06 사용자 "깨운 뒤에도 파랑 유지"): 깨우기 색([wakeRgb])을 칠했다. 깨운 뒤 회복·집중으로 넘어가도
+  /// 그 사람 '빛의 온도'(calmRgb)로 다시 칠하지 않는다 — 태환은 빛의 온도 0.0(주황빛 빨강)이라 빠른 시연에서 파랑이 5 s 만에
+  /// 빨강으로 바뀌었다. 자리 비움으로 끄거나(set_power off), 되돌리거나(gate undo), 끄는 국면(idle·end)이거나, 사람이 바뀌면 푼다.
+  bool wakeColorHeld = false;
 
   /// 앱에서 작업(집중)이 진행 중인지. 작업 중일 때만 집중 음악을 켠다.
   bool _session = false;
@@ -538,6 +568,9 @@ class FeedbackCoordinator {
   /// 프로필이 바뀔 때: 이름으로 깨우기 곡을, 소리 선택으로 곡 묶음을 정한다.
   Future<void> setMusicProfile(String name, String sound) async {
     wakeSong = wakeSongProfiles.contains(name.trim());
+    final rgb = wakeLampColors[name.trim()];
+    if (rgb?.join(',') != wakeRgb?.join(',')) wakeColorHeld = false; // 사람이 바뀌면 이전 사람의 깨우기 색을 붙들지 않는다
+    wakeRgb = rgb;
     await setMusicChoice(sound);
   }
 
@@ -699,11 +732,17 @@ class FeedbackCoordinator {
     if (_applying) return;
     _applying = true;
     try {
+      // V61: 끄는 국면이면 깨우기 색 붙들기를 푼다. 색을 칠하는 국면(시작·집중·회복)은 붙들고 있는 동안 건너뛴다.
+      if (state.phase == 'idle' || state.phase == 'end') wakeColorHeld = false;
+      final holdWake = wakeColorHeld &&
+          (state.phase == 'start' ||
+              state.phase == 'focus' ||
+              state.phase == 'recovery');
       // 색도 열쇠에 넣어 같은 국면에서 사람이 바뀌면 다시 칠한다
       final key = '${state.phase}:${lamp.address}:${calmRgb?.join(',')}';
-      if (key != _lastLampKey && _phaseLampAllowed(key)) {
+      if (!holdWake && key != _lastLampKey && _phaseLampAllowed(key)) {
         if (await lamp
-            .writeFrames(ilinkFramesForPhase(state.phase, rgb: calmRgb))) {
+            .writeFrames(ilinkFramesForPhase(state.phase, white: true))) {
           _lastLampKey = key;
           _lampFailKey = null;
         } else {
@@ -853,7 +892,12 @@ class FeedbackCoordinator {
           error: 'unsupported_operation_or_value');
     }
     // 피로 단계에 hub 가 무드등을 켜거나 밝히면 이 사람의 '피곤할 때 색'으로 칠한다(되돌리기·끄기는 제외).
-    final rgb = fatigueRgb;
+    // V59: 이름으로 정한 깨우기 색(태환 파랑·민경 보라)이 있으면 그 색.
+    final rgb = wakeRgb ?? fatigueRgb;
+    final paintWake = wakeRgb != null &&
+        command['gate'] != 'undo' &&
+        _latest?.phase == 'fatigue' &&
+        !(command['operation'] == 'set_power' && value == 'off');
     if (rgb != null &&
         command['gate'] != 'undo' &&
         _latest?.phase == 'fatigue' &&
@@ -873,6 +917,14 @@ class FeedbackCoordinator {
           extra: recovery);
     }
     extra = {...extra, ...recovery};
+    // V61: 깨우기 색을 칠했으면 붙든다. 끄기·되돌리기면 풀어 다음 국면이 그 사람 색으로 다시 칠하게 한다.
+    if (paintWake) {
+      wakeColorHeld = true;
+    } else if (command['gate'] == 'undo' ||
+        (command['operation'] == 'set_power' && value == 'off')) {
+      if (wakeColorHeld) _lastLampKey = null;
+      wakeColorHeld = false;
+    }
     return _result(command, 'succeeded', actual: actual, extra: extra);
   }
 

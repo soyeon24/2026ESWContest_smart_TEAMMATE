@@ -16,6 +16,19 @@
 // | vent_fan 켜기    | 선선한 바람으로 잠을 깨워 볼게요        | 공기가 무거워 바람을 조금 들였어요     | 잠깐 바람으로 머리를 식혀요            |
 // | air_purifier 세게 | 숨 쉬기 편하게 공기를 맑게 하고 있어요 (원인 무관)                                                     |
 // | speaker 알림음·음성·휴식 안내 | 이 카드 없음 — hub 자동 정보 카드·rest_notice 배너가 맡는다                                  |
+// | music 켜기(V58) | 음악으로 잠을 깨워 볼게요 | 음악으로 기분을 바꿔 볼게요 | 잠깐 음악으로 머리를 식혀요 · 자리 복귀(RETURN): 듣던 음악을 다시 틀었어요 |
+//
+// V58(11-05 사용자 "주변기기 제어할 때 라즈베리파이 화면에 되돌리기 버튼 만들어줘. 소리 끌 수 있는"): 깨우기는 음악·조명·선풍기를
+// 한 번에(같은 tick) 내는데 카드는 하나라 마지막 기기(조명·선풍기)로 바뀌어 음악은 끌 길이 없었다. 같은 묶음([autoBurst] 안·같은
+// origin_state)은 카드 하나로 모으고, 음악이 있으면 음악 카드로 두어 버튼이 '소리 끄기'가 된다. hub 되돌리기는 그 에피소드의 기기를 모두
+// 되돌리므로 함께 켠 기기도 한 줄로 알린다. 자리 복귀(RETURN)가 다시 튼 음악도 카드를 띄운다(hub 는 RETURN 을 되돌릴 값이 없어
+// 앱이 그 자리에서 음악을 멈춘다 — LiveLink.onLocalMusicStop).
+//
+// V60(11-06 사용자 "화면 문구가 실제 주변기기 제어와 안 맞아. 최근 민경 조명 제어인데 음악 화면이 뜸"): V58 은 묶음에 음악이 있으면
+// 무조건 음악 카드로 바꿔, 민경(도움 순서 빛 먼저 — hub arm demo_wake:light+sound)의 깨우기도 "음악으로 …"로 떴다. 이제 카드는
+// hub 가 보낸 순서(= 도움 순서)의 첫 기기를 앞세우고, 제목은 묶음 기기를 그 순서대로 모두 말한다("불빛과 음악으로 잠을 깨워 볼게요").
+// 깨우기 묶음은 FSM 이 ACTION_ENV(원인 environment)일 때도 나가 '기분을 바꿔 볼게요'·'주변이 달라졌어요'가 떴다 — hub 가 11-06 부터
+// control/cmd 에 싣는 arm 이 demo_wake:* 이면 원인을 깨우기(posture)로 본다. 음악이 묶음 어디에 있든 되돌리면 앱이 소리를 바로 끈다.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -39,6 +52,18 @@ const autoUndoResultWait = Duration(seconds: 15);
 /// 이 카드가 되돌리기를 보낸 뒤, undo_of 없는 되돌리기 명령을 이 카드 것으로 받아 주는 시간(hub undo_window_sec 와 같다).
 const autoUndoLinkWindow = Duration(seconds: 60);
 
+/// V58: 이 안에 온 같은 origin_state 의 자동 명령은 한 묶음(깨우기의 음악·조명·선풍기)으로 카드 하나에 모은다.
+const autoBurst = Duration(seconds: 3);
+
+/// 카드에 쓰는 기기 이름(함께 켠 기기 한 줄).
+String autoTargetName(String target) => switch (target) {
+      'desk_lamp' => '불빛',
+      'vent_fan' || 'fan' => '바람',
+      'music' => '음악',
+      'air_purifier' => '공기청정기',
+      _ => target,
+    };
+
 /// [undone] 은 되돌리기 명령의 결과가 succeeded 일 때만. 실패·시간 초과면 [undoFailed].
 enum AutoActionStatus { sent, done, failed, undoing, undone, undoFailed }
 
@@ -56,6 +81,10 @@ class AutoActionCard {
     this.undoSentAt,
     this.undoCommandId,
     this.undoCommandAt,
+    this.origin,
+    this.others = const [],
+    this.musicStopped = false,
+    this.cause,
   });
 
   final String commandId;
@@ -77,6 +106,34 @@ class AutoActionCard {
   /// 이 카드에 묶은 hub 되돌리기 명령(gate undo)의 command_id 와 받은 시각. 그 id 의 결과로만 되돌림을 판정한다.
   final String? undoCommandId;
   final DateTime? undoCommandAt;
+
+  /// V58: 이 카드를 연 명령의 origin_state(ACTION_*·RETURN) — 같은 묶음인지 볼 때.
+  final String? origin;
+
+  /// V58: 같은 묶음으로 함께 움직인 다른 기기(target_id). hub 되돌리기는 이것들도 함께 되돌린다.
+  final List<String> others;
+
+  /// V58: 되돌리기를 누를 때 앱이 그 자리에서 음악을 멈췄다.
+  final bool musicStopped;
+
+  /// V60: 제목을 정한 원인(arm 이 깨우기면 posture) — 묶음 제목을 다시 만들 때.
+  final String? cause;
+
+  /// 음악 카드(앞세운 기기가 음악) — 되돌리기 버튼이 '소리 끄기'다.
+  bool get isMusic => targetId == 'music';
+
+  /// V60: 묶음 어디에든 음악이 있다 — 되돌리면 앱이 그 자리에서 소리를 끈다.
+  bool get hasMusic => isMusic || others.contains('music');
+
+  /// 함께 움직인 기기 한 줄. 없으면 null.
+  String? get othersLine {
+    final names = <String>{
+      for (final t in others)
+        if (t != targetId) autoTargetName(t)
+    }.toList();
+    if (names.isEmpty) return null;
+    return '되돌리면 함께 켠 ${names.join('·')}도 원래대로 돌아가요';
+  }
 
   DateTime get undoUntil => executedAt.add(autoUndoWindow);
 
@@ -102,6 +159,8 @@ class AutoActionCard {
             when undoCommandAt != null &&
                 !now.isBefore(undoCommandAt!.add(autoUndoResultWait)) =>
           _undoFailedText,
+        AutoActionStatus.undoing when musicStopped && undoCommandId == null =>
+          '소리를 껐어요. 다음엔 다른 방법으로 다가갈게요',
         AutoActionStatus.undoing
             when undoCommandId == null &&
                 undoSentAt != null &&
@@ -120,11 +179,14 @@ class AutoActionCard {
           String? failure,
           DateTime? undoSentAt,
           String? undoCommandId,
-          DateTime? undoCommandAt}) =>
+          DateTime? undoCommandAt,
+          List<String>? others,
+          bool? musicStopped,
+          String? title}) =>
       AutoActionCard(
         commandId: commandId,
         targetId: targetId,
-        title: title,
+        title: title ?? this.title,
         reason: reason,
         personalNote: personalNote,
         executedAt: executedAt,
@@ -133,7 +195,53 @@ class AutoActionCard {
         undoSentAt: undoSentAt ?? this.undoSentAt,
         undoCommandId: undoCommandId ?? this.undoCommandId,
         undoCommandAt: undoCommandAt ?? this.undoCommandAt,
+        origin: origin,
+        others: others ?? this.others,
+        musicStopped: musicStopped ?? this.musicStopped,
+        cause: cause,
       );
+}
+
+/// V60: hub arm → 카드 원인. 빠른 시연 깨우기(demo_wake:*)는 FSM 상태가 ACTION_ENV 여도 졸음 깨우기다.
+String? autoActionCause(String? cause, String? arm) =>
+    arm != null && arm.startsWith('demo_wake') ? 'posture' : cause;
+
+/// 받침이 있으면 true(한글 음절만 본다).
+bool _batchim(String word) {
+  if (word.isEmpty) return false;
+  final c = word.codeUnitAt(word.length - 1);
+  if (c < 0xAC00 || c > 0xD7A3) return false;
+  return (c - 0xAC00) % 28 != 0;
+}
+
+/// 받침이 ㄹ 이거나 없으면 '로', 아니면 '으로'.
+String _euro(String word) {
+  if (word.isEmpty) return '로';
+  final c = word.codeUnitAt(word.length - 1);
+  if (c < 0xAC00 || c > 0xD7A3) return '로';
+  final jong = (c - 0xAC00) % 28;
+  return jong == 0 || jong == 8 ? '로' : '으로';
+}
+
+/// V60: 묶음 기기(hub 가 보낸 순서) → 카드 제목. 하나면 [autoActionTitle] 그대로.
+String autoBundleTitle(List<String> targets, String? cause, String single) {
+  final names = <String>[];
+  for (final t in targets) {
+    final n = autoTargetName(t);
+    if (!names.contains(n)) names.add(n);
+  }
+  if (names.length < 2) return single;
+  final head = names.sublist(0, names.length - 1);
+  final last = names.last;
+  final andWord = head.last + (_batchim(head.last) ? '과' : '와');
+  final joined = '${[...head.sublist(0, head.length - 1), andWord].join(', ')} $last';
+  final by = joined + _euro(last);
+  return switch (cause) {
+    'posture' => '$by 잠을 깨워 볼게요',
+    'environment' => '$by 주변을 바꿔 볼게요',
+    'cognitive' => '잠깐 $by 머리를 식혀요',
+    _ => '$by 챙겨 볼게요',
+  };
 }
 
 /// 기기·동작·원인 → 카드 제목. 이 카드를 띄우지 않는 명령이면 null.
@@ -161,6 +269,17 @@ String? autoActionTitle(
       };
     case 'air_purifier':
       return '숨 쉬기 편하게 공기를 맑게 하고 있어요';
+    case 'music':
+      if (operation != 'set_music' || value is! Map || value['on'] != true) {
+        return null;
+      }
+      return switch (cause) {
+        'posture' => '음악으로 잠을 깨워 볼게요',
+        'environment' => '음악으로 기분을 바꿔 볼게요',
+        'cognitive' => '잠깐 음악으로 머리를 식혀요',
+        'return' => '돌아오셨네요. 듣던 음악을 다시 틀었어요',
+        _ => '음악을 틀었어요',
+      };
   }
   return null; // speaker(알림음·음성·휴식 안내)는 hub 정보 카드·rest_notice 가 맡는다
 }
@@ -255,11 +374,30 @@ class AutoActionBoard extends ChangeNotifier {
     }
     if (gate != 'auto') return;
     final origin = data['origin_state']?.toString() ?? '';
-    if (!origin.startsWith('ACTION_')) return;
+    // V58: 자리 복귀(RETURN)는 음악만 — 조명 복원 밝기를 '낮췄어요'로 잘못 말하지 않게.
+    if (!origin.startsWith('ACTION_') &&
+        !(origin == 'RETURN' && target == 'music')) {
+      return;
+    }
     final id = data['command_id']?.toString() ?? '';
-    final cause = data['cause']?.toString();
+    final cause = autoActionCause(data['cause']?.toString(), data['arm']?.toString());
     final title = autoActionTitle(target, operation, data['value'], cause);
     if (id.isEmpty || title == null) return;
+    // V58·V60: 같은 묶음(깨우기의 음악·조명·선풍기)은 카드 하나 — 먼저 온 기기(hub 도움 순서의 첫 기기)를 앞세우고,
+    // 뒤에 온 기기는 함께 움직인 기기로 더하며 제목을 묶음 전체로 다시 쓴다.
+    final burst = card != null &&
+        card.origin == origin &&
+        (card.status == AutoActionStatus.sent ||
+            card.status == AutoActionStatus.done) &&
+        now.difference(card.executedAt) < autoBurst;
+    if (burst && target != card.targetId && !card.others.contains(target)) {
+      final others = [...card.others, target];
+      _current = card.copyWith(
+          others: others,
+          title: autoBundleTitle([card.targetId, ...others], card.cause, card.title));
+      notifyListeners();
+      return;
+    }
     _current = AutoActionCard(
       commandId: id,
       targetId: target,
@@ -267,6 +405,8 @@ class AutoActionBoard extends ChangeNotifier {
       reason: autoActionReason(cause, state),
       personalNote: autoActionPersonalNote(target, state),
       executedAt: now,
+      origin: origin,
+      cause: cause,
     );
     notifyListeners();
   }
@@ -327,10 +467,13 @@ class AutoActionBoard extends ChangeNotifier {
   }
 
   /// 되돌리기를 보냈다 — hub 의 되돌리기 명령(gate undo)이 오면 묶고, 그 결과가 succeeded 면 [AutoActionStatus.undone].
-  void markUndoing(DateTime now) {
+  void markUndoing(DateTime now, {bool musicStopped = false}) {
     final card = _current;
     if (card == null) return;
-    _current = card.copyWith(status: AutoActionStatus.undoing, undoSentAt: now);
+    _current = card.copyWith(
+        status: AutoActionStatus.undoing,
+        undoSentAt: now,
+        musicStopped: musicStopped);
     notifyListeners();
   }
 

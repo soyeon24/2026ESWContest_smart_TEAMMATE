@@ -445,6 +445,7 @@ class _DemoShellState extends State<DemoShell> {
         lines: [
           if (card.reason != null) card.reason!,
           if (card.personalNote != null) card.personalNote!,
+          if (card.othersLine != null) card.othersLine!,
           if (status != null) status,
         ],
         lineKeyPrefix: 'auto-action-line-',
@@ -455,7 +456,9 @@ class _DemoShellState extends State<DemoShell> {
             OutlinedButton(
                 key: const ValueKey('auto-action-undo'),
                 onPressed: () => live.undoAutoAction(),
-                child: Text('원래대로 ${card.undoSecondsLeft(now)}초')),
+                child: Text(card.isMusic
+                    ? '소리 끄기 ${card.undoSecondsLeft(now)}초'
+                    : '원래대로 ${card.undoSecondsLeft(now)}초')),
           FilledButton(
               onPressed: live.autoActions.dismiss, child: const Text('좋아요')),
         ]);

@@ -178,7 +178,86 @@ void main() {
     expect(bluetooth.frames.last, ilinkFrame([1, 8, 1, 40]));
   });
 
-  test('V57: focus and recovery lamp colors follow the person warmth',
+  test('V59: wake lamp color by name — 태환 blue, 민경 purple, others fatigue color',
+      () async {
+    final bluetooth = _FakeBluetooth();
+    final coordinator = FeedbackCoordinator(
+        music: _FakeMusic(),
+        lamp: IlinkLampFeedback(bluetooth)..select(firstAddress),
+        bluetooth: bluetooth)
+      ..enabled = true
+      ..setFatigueColor(0); // 따뜻하게
+    await coordinator.apply(_state('ACTION_POSTURE', gate: 'auto'));
+    await coordinator.setMusicProfile('태환', '카페 음악');
+    await coordinator.handleControlCommand(_command('t'));
+    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 30, 80, 255]));
+    await coordinator.setMusicProfile('민경', '카페 음악');
+    await coordinator.handleControlCommand(_command('m'));
+    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 150, 40, 255]));
+    await coordinator.setMusicProfile('소연', '카페 음악');
+    await coordinator.handleControlCommand(_command('s'));
+    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 255, 120, 40]),
+        reason: '표에 없는 사람은 환기할 때 빛의 온도 그대로');
+  });
+
+  test('V61: wake color stays through recovery until undo or power off',
+      () async {
+    final bluetooth = _FakeBluetooth();
+    final coordinator = FeedbackCoordinator(
+        music: _FakeMusic(),
+        lamp: IlinkLampFeedback(bluetooth)..select(firstAddress),
+        bluetooth: bluetooth)
+      ..enabled = true
+      ..setCalmColor(0); // 태환: 빛의 온도 0.0 = 주황빛 빨강
+    await coordinator.setMusicProfile('태환', '카페 음악');
+    await coordinator.apply(_state('ACTION_POSTURE', gate: 'auto'));
+    await coordinator.handleControlCommand(_command('w1'));
+    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 30, 80, 255]));
+    expect(coordinator.wakeColorHeld, isTrue);
+    final before = bluetooth.writeCount;
+    await coordinator.apply(_state('RECOVERY', phase: 'recovery'));
+    await coordinator.apply(_state('FOCUS_PC', phase: 'focus'));
+    expect(bluetooth.writeCount, before, reason: '깨운 뒤 회복·집중에도 파랑 그대로');
+    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 30, 80, 255]));
+    // 되돌리면 풀리고, 다음 국면은 그 사람 색으로
+    await coordinator.handleControlCommand(
+        {..._command('u1'), 'gate': 'undo', 'value': 110});
+    expect(coordinator.wakeColorHeld, isFalse);
+    await coordinator.apply(_state('RECOVERY', phase: 'recovery'));
+    expect(bluetooth.frames.last, ilinkWhiteFrame,
+        reason: 'V63: 되돌린 뒤 평소 색은 램프 흰빛');
+  });
+
+  test('V61: absent power off and person change release the held wake color',
+      () async {
+    final bluetooth = _FakeBluetooth();
+    final coordinator = FeedbackCoordinator(
+        music: _FakeMusic(),
+        lamp: IlinkLampFeedback(bluetooth)..select(firstAddress),
+        bluetooth: bluetooth)
+      ..enabled = true
+      ..setCalmColor(0);
+    await coordinator.setMusicProfile('태환', '카페 음악');
+    await coordinator.apply(_state('ACTION_POSTURE', gate: 'auto'));
+    await coordinator.handleControlCommand(_command('w1'));
+    expect(coordinator.wakeColorHeld, isTrue);
+    await coordinator.handleControlCommand({
+      ..._command('off1'),
+      'gate': 'auto',
+      'operation': 'set_power',
+      'value': 'off'
+    });
+    expect(coordinator.wakeColorHeld, isFalse);
+    await coordinator.handleControlCommand(_command('w2'));
+    expect(coordinator.wakeColorHeld, isTrue);
+    await coordinator.setMusicProfile('소연', '무음');
+    expect(coordinator.wakeColorHeld, isFalse);
+    // 깨우기 색이 없는 사람은 붙들지 않는다
+    await coordinator.handleControlCommand(_command('w3'));
+    expect(coordinator.wakeColorHeld, isFalse);
+  });
+
+  test('V63: focus and recovery lamp use the lamp own white whatever the person warmth',
       () async {
     final bluetooth = _FakeBluetooth();
     final coordinator = FeedbackCoordinator(
@@ -188,13 +267,12 @@ void main() {
       ..enabled = true
       ..setCalmColor(1); // 맑고 시원하게
     await coordinator.apply(_state('FOCUS_PC', phase: 'focus'));
-    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 170, 205, 255]));
-    coordinator.setCalmColor(0); // 다른 사람: 따뜻하게 — 같은 국면이어도 다시 칠한다
-    await coordinator.apply(_state('FOCUS_PC', phase: 'focus'));
-    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 255, 120, 40]));
+    expect(bluetooth.frames.last, ilinkWhiteFrame);
+    coordinator.setCalmColor(0); // 태환: 빛의 온도 0.0 — 평소는 그래도 흰빛
     await coordinator.apply(_state('RECOVERY', phase: 'recovery'));
-    expect(bluetooth.frames.last, ilinkFrame([3, 8, 2, 255, 120, 40]),
-        reason: '회복도 고정 파랑이 아니라 그 사람 색');
+    expect(bluetooth.frames.last, ilinkWhiteFrame, reason: '평소는 흰색(11-06 사용자)');
+    expect(bluetooth.frames.any((f) => f.length > 4 && f[2] == 3),
+        isFalse, reason: 'RGB 흰색 흉내(연보라)는 쓰지 않는다');
     // 끄는 국면은 색이 없다
     expect(ilinkFramesForPhase('idle', rgb: [1, 2, 3]),
         ilinkFramesForPhase('idle'));

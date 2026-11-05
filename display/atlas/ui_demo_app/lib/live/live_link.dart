@@ -441,9 +441,17 @@ class LiveLink extends ChangeNotifier {
             requestId: 'atlas-display',
             verdict: 'reject',
             responseMs: ms < 0 ? 0 : ms));
-    if (sent) autoActions.markUndoing(_clock());
-    return sent;
+    // V58: 음악 카드는 hub 를 기다리지 않고 그 자리에서 소리를 끈다(자리 복귀 RETURN 은 hub 에 되돌릴 값이 없다).
+    final stopped = card.hasMusic && onLocalMusicStop != null;
+    if (stopped) onLocalMusicStop!();
+    if (sent || stopped) {
+      autoActions.markUndoing(_clock(), musicStopped: stopped);
+    }
+    return sent || stopped;
   }
+
+  /// V58: 음악 카드의 '소리 끄기' — 앱 안에서 음악을 바로 멈춘다(DeveloperController 가 채운다).
+  void Function()? onLocalMusicStop;
 
   /// 빠른 시연 켜기·끄기. hub 가 시연 프로파일이 아니면 받아도 무시한다(fsm.yaml demo_fast.enabled). 보냈으면 true.
   bool setDemoSpeed(bool fast) =>

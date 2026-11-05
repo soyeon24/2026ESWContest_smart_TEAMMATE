@@ -12,7 +12,8 @@ Map<String, Object?> cmd(String target, String operation, Object? value,
         String origin = 'ACTION_POSTURE',
         String cause = 'posture',
         String id = 'c1',
-        String? undoOf}) =>
+        String? undoOf,
+        String? arm}) =>
     {
       'schema_version': '1.0',
       'ts': 1769000010.0,
@@ -27,6 +28,7 @@ Map<String, Object?> cmd(String target, String operation, Object? value,
         'gate': gate,
         'requires_confirmation': false,
         if (undoOf != null) 'undo_of': undoOf,
+        if (arm != null) 'arm': arm,
       },
     };
 
@@ -80,6 +82,116 @@ void main() {
   });
 
   group('LiveLink 자동 실행 카드', () {
+    // V58(11-05 사용자 "주변기기 제어할 때 되돌리기 버튼 만들어줘. 소리 끌 수 있는")
+    test('깨우기 묶음(음악+조명+선풍기)은 음악 카드 하나 — 소리 끄기는 앱에서 바로 멈추고 hub 에 되돌리기', () async {
+      var now = DateTime(2026, 11, 6, 14);
+      final (link, transport) = await connected(clock: () => now);
+      var stops = 0;
+      link.onLocalMusicStop = () => stops++;
+      transport.deliver(LiveLink.stateTopic,
+          phase('ACTION_ENV', fatigue: .82, summary: sleepy));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('music', 'set_music', {'on': true}, id: 'm1', origin: 'ACTION_ENV', cause: 'environment'));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('desk_lamp', 'adjust_brightness', {'percent': 60, 'min_raw': 153},
+              id: 'l1', origin: 'ACTION_ENV', cause: 'environment'));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('vent_fan', 'set_power', 'on', id: 'f1', origin: 'ACTION_ENV', cause: 'environment'));
+      var card = link.autoActions.current(now)!;
+      expect(card.isMusic, isTrue); // 음악이 먼저 왔다(도움 순서 소리 먼저)
+      expect(card.title, '음악, 불빛과 바람으로 주변을 바꿔 볼게요'); // V60: 묶음 기기를 순서대로 모두
+      expect(card.othersLine, '되돌리면 함께 켠 불빛·바람도 원래대로 돌아가요');
+      transport.deliver(LiveLink.resultTopic, result('m1', 'succeeded'));
+      now = now.add(const Duration(seconds: 5));
+      expect(link.undoAutoAction(), isTrue);
+      expect(stops, 1); // hub 를 기다리지 않고 그 자리에서 소리를 끈다
+      expect(transport.sent(LiveLink.feedbackTopic).last['data']['verdict'], 'reject');
+      card = link.autoActions.current(now)!;
+      expect(card.status, AutoActionStatus.undoing);
+      expect(card.statusTextAt(now), '소리를 껐어요. 다음엔 다른 방법으로 다가갈게요');
+      link.dispose();
+    });
+
+    test('V60: 조명이 먼저면 조명 카드 — 제목은 묶음 순서대로, 묶음 밖(3 s 뒤) 명령은 새 카드', () async {
+      var now = DateTime(2026, 11, 6, 14);
+      final (link, transport) = await connected(clock: () => now);
+      transport.deliver(LiveLink.commandTopic,
+          cmd('desk_lamp', 'adjust_brightness', {'percent': 60}, id: 'l1'));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('music', 'set_music', {'on': true}, id: 'm1'));
+      var card = link.autoActions.current(now)!;
+      expect(card.targetId, 'desk_lamp');
+      expect(card.isMusic, isFalse);
+      expect(card.hasMusic, isTrue);
+      expect(card.title, '불빛과 음악으로 잠을 깨워 볼게요');
+      expect(card.othersLine, '되돌리면 함께 켠 음악도 원래대로 돌아가요');
+      now = now.add(const Duration(seconds: 4));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('vent_fan', 'set_power', 'on', id: 'f2'));
+      card = link.autoActions.current(now)!;
+      expect(card.targetId, 'vent_fan');
+      expect(card.othersLine, isNull);
+      link.dispose();
+    });
+
+    test('자리 복귀(RETURN)가 다시 튼 음악은 카드 — 조명 복원은 카드 없음, 음악 끄기는 hub 없이도', () async {
+      final now = DateTime(2026, 11, 6, 14);
+      final (link, transport) = await connected(clock: () => now);
+      var stops = 0;
+      link.onLocalMusicStop = () => stops++;
+      transport.deliver(LiveLink.commandTopic,
+          cmd('desk_lamp', 'set_brightness', 110, id: 'r1', origin: 'RETURN', cause: 'return'));
+      expect(link.autoActions.current(now), isNull);
+      transport.deliver(LiveLink.commandTopic,
+          cmd('music', 'set_music', {'on': true, 'volume': 1.0, 'track': 7},
+              id: 'r2', origin: 'RETURN', cause: 'return'));
+      final card = link.autoActions.current(now)!;
+      expect(card.title, '돌아오셨네요. 듣던 음악을 다시 틀었어요');
+      expect(link.undoAutoAction(), isTrue);
+      expect(stops, 1);
+      link.dispose();
+    });
+
+    // V60(11-06 사용자 "최근 민경 조명제어인데 음악 화면이 뜸")
+    test('V60: 민경 깨우기(arm demo_wake:light+sound, ACTION_ENV) — 불빛 먼저, 깨우기 문구, 되돌리면 소리도 바로 끔', () async {
+      var now = DateTime(2026, 11, 6, 2);
+      final (link, transport) = await connected(clock: () => now);
+      var stops = 0;
+      link.onLocalMusicStop = () => stops++;
+      transport.deliver(LiveLink.stateTopic,
+          phase('ACTION_ENV', fatigue: .82, summary: sleepy));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('desk_lamp', 'adjust_brightness', {'percent': 60, 'min_raw': 153},
+              id: 'l1', origin: 'ACTION_ENV', cause: 'environment', arm: 'demo_wake:light+sound'));
+      transport.deliver(LiveLink.commandTopic,
+          cmd('music', 'set_music', {'on': true},
+              id: 'm1', origin: 'ACTION_ENV', cause: 'environment', arm: 'demo_wake:light+sound'));
+      final card = link.autoActions.current(now)!;
+      expect(card.targetId, 'desk_lamp');
+      expect(card.title, '불빛과 음악으로 잠을 깨워 볼게요');
+      expect(card.reason, isNot(contains('주변')));
+      transport.deliver(LiveLink.resultTopic, result('l1', 'succeeded'));
+      now = now.add(const Duration(seconds: 3));
+      expect(link.undoAutoAction(), isTrue);
+      expect(stops, 1);
+      link.dispose();
+    });
+
+    test('V60: 묶음 제목 조사', () {
+      expect(autoBundleTitle(['vent_fan', 'desk_lamp'], 'posture', 'x'), '바람과 불빛으로 잠을 깨워 볼게요');
+      expect(autoBundleTitle(['music', 'desk_lamp'], 'cognitive', 'x'), '잠깐 음악과 불빛으로 머리를 식혀요');
+      expect(autoBundleTitle(['desk_lamp', 'air_purifier'], 'environment', 'x'), '불빛과 공기청정기로 주변을 바꿔 볼게요');
+      expect(autoBundleTitle(['desk_lamp'], 'posture', '단일'), '단일');
+      expect(autoActionCause('environment', 'demo_wake:light'), 'posture');
+      expect(autoActionCause('environment', 'hot_fan'), 'environment');
+    });
+
+    test('음악 끄기(on false)는 카드 없음', () {
+      expect(autoActionTitle('music', 'set_music', {'on': false}, 'absent'), isNull);
+      expect(autoActionTitle('music', 'set_music', {'on': true}, 'cognitive'),
+          '잠깐 음악으로 머리를 식혀요');
+    });
+
     test('무드등 자동 실행 → 카드, 결과, 되돌리기 → undo', () async {
       var now = DateTime(2026, 11, 6, 14);
       final (link, transport) = await connected(clock: () => now);

@@ -56,7 +56,7 @@ class ControlCommand:
     context: dict[str, Any] = field(default_factory=dict)  # Internal planner data, never MQTT.
     sent_ts: float | None = None
     completed_ts: float | None = None
-    arm: str | None = None            # 개인화 정책이 고른 arm(그 arm 의 spec 으로 만든 명령일 때) — 로그용, payload 에는 안 싣는다
+    arm: str | None = None            # 개인화 정책이 고른 arm(그 arm 의 spec 으로 만든 명령일 때) — 로그용, 11-06 부터 payload 에도 싣는다(화면 카드 문구)
     error_code: str | None = None
     state_confirmed: bool = False
 
@@ -66,6 +66,8 @@ class ControlCommand:
             "value": self.value, "origin_state": self.origin_state, "cause": self.cause, "gate": self.gate,
             "requires_confirmation": self.requires_confirmation, "expires_ts_ms": int(self.expires_ts * 1000),
             **({"undo_of_command_id": self.context["undo_of_command_id"]} if "undo_of_command_id" in self.context else {}),
+            # 11-06: 화면 카드가 실제 제어와 같은 말을 하게(깨우기 묶음은 ACTION_ENV 로도 나가 '환경' 문구가 떴다) — 정책 arm 을 싣는다.
+            **({"arm": self.arm} if self.arm else {}),
         }
 
     @property

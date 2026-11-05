@@ -51,6 +51,10 @@ except ImportError:  # pragma: no cover
     latest_app_labels = None  # type: ignore[assignment]
     load_learning_config = None  # type: ignore[assignment]
 
+# 한 피로 에피소드로 보는 상태 — 빠른 시연 피로 묶음(11-05)이 이 동안 본 깊은 자세를 기억한다
+_EPISODE_STATES = (State.FATIGUE_SUSPECT, State.FATIGUE, State.CAUSE_ANALYSIS, State.ACTION_POSTURE, State.ACTION_ENV,
+                   State.ACTION_BREAK, State.MONITOR, State.ESCALATE, State.RECOVERY)
+
 
 def frame_to_dict(frame: SensorFrame) -> dict[str, Any]:
     """replay.iter_frames 가 그대로 읽는 형식."""
@@ -121,10 +125,14 @@ class LiveHub:
         self.fsm_cfg, self.ingest_cfg, self.profile = apply_profile(
             self.fsm_cfg, self.ingest_cfg, profile, log=lambda m: print(m, file=out, flush=True))
         self.engine = FSMEngine(self.fsm_cfg)
+        # 제안·안내 카드 표시 시간(interaction/request expires_in_s)은 켤 때 값 그대로 — 빠른 시연이 집중 저하 관찰
+        # (focus_break_poll_sec)을 5 s 로 줄여도 카드는 5 s 만에 닫히지 않게(11-05 사용자 "카드는 시간을 너무 배속하지 마")
+        self._card_expires_sec = float(self.fsm_cfg["timers"].get("focus_break_poll_sec", 180))
         # 빠른 시연(demo_mode.py, fsm.yaml demo_fast:): 화면 버튼 토픽으로 엔진 피로 유지 타이머를 줄였다 되돌린다
         self.demo_speed = DemoSpeed(self.fsm_cfg.get("demo_fast"), self.engine.tm,
                                     on_log=lambda m: print(m, file=out, flush=True),
-                                    posture_delta=(self.ingest_cfg.get("tof") or {}).get("posture_delta"))
+                                    posture_delta=(self.ingest_cfg.get("tof") or {}).get("posture_delta"),
+                                    tof_cfg=self.ingest_cfg.setdefault("tof", {}))
         self.tracker = SessionTracker(
             elapsed_reset_on_rest=bool((self.ingest_cfg.get("elapsed") or {}).get("reset_on_rest", False)))
         self.privacy_cfg = privacy_cfg if privacy_cfg is not None else load_privacy_config()
@@ -303,6 +311,7 @@ class LiveHub:
         self._demo_plan: dict[str, Any] | None = None
         self._demo_notice: dict[str, Any] | None = None          # 떠 있는 빠른 시연 안내 카드(바른 자세로 돌아오면 닫는다)
         self._fatigue_label: str | None = None                    # FATIGUE 확정 순간의 자세 — 원인 판단이 흔들려도 시연 규칙에 쓴다
+        self._episode_deep: str | None = None                     # 이번 피로 동안 본 깊은 자세(엎드림·졸음) — 빠른 시연 피로 묶음(11-05)
         self.rest_notifier = RestNotifier(
             self.control_cfg.get("rest_notice"), fsm_cfg=self.fsm_cfg, boot_id=self.boot_id,
             publish_request=self.publish_request, publish_control=rest_sink,
@@ -439,7 +448,10 @@ class LiveHub:
             if self.control_log is not None:
                 self.control_log.tick(now)
 
+        was_fast = self.demo_speed.speed == "fast"
         self.demo_speed.observe(view.demo_mode, now)          # 엔진 tick 전에 — 이번 tick 부터 바뀐 유지 시간으로 본다
+        if self.demo_speed.speed == "fast" and not was_fast:
+            self.demo_wake.reset()                            # 빠른 시연을 새로 켜면 깨우기 횟수(첫 번째·두 번째)도 처음부터
         # 11-03 결선 대본(8분): 빠른 시연은 판정 주기도 줄인다(fsm.yaml demo_fast.period_sec). tick 루프(live·service_bridge)가
         # 다음 tick 시각을 hub.period 로 잡으므로 다음 tick 부터 바뀐다. 운영 판정 주기(10 s)는 normal 에서 그대로.
         self.period = ((self.demo_speed.period_sec or self._normal_period) if self.demo_speed.speed == "fast"
@@ -504,6 +516,13 @@ class LiveHub:
         rec = self.personalize_recorder
         if rec is not None and result.state is State.FATIGUE and prev_state is not State.FATIGUE:
             self._fatigue_label = rec.last_posture_label
+        # 11-05 사용자 "자세가 달라도 피로이면 합쳐진 피로를 기준으로": 의심~관찰 동안 한 번이라도 깊은 자세(엎드림·졸음)였으면, 개입 tick 에
+        # 같은 피로 묶음의 턱 괴기로 읽혀도 깊은 깨우기로 간다. 피로에서 벗어나면(집중·휴식·부재 등) 잊는다.
+        fatigue_group = self.demo_speed.fatigue_labels if self.demo_speed.speed == "fast" else ()
+        if rec is None or not fatigue_group or result.state not in _EPISODE_STATES:
+            self._episode_deep = None
+        elif rec.last_posture_label in self.demo_wake.deep_labels and rec.last_posture_label in fatigue_group:
+            self._episode_deep = rec.last_posture_label
         if (self.control is not None and self.demo_speed.speed == "fast" and rec is not None
                 and result.state in (State.ACTION_POSTURE, State.ACTION_ENV, State.ACTION_BREAK)
                 and result.state is not prev_state):
@@ -512,9 +531,12 @@ class LiveHub:
             label = rec.last_posture_label
             if label not in self.demo_wake.rule_labels and remembered:
                 label = remembered                         # 원인 판단 tick 에 자세가 흔들렸으면 확정 순간의 자세
+            if (self._episode_deep and label in fatigue_group and label not in self.demo_wake.deep_labels):
+                label = self._episode_deep                 # 피로 묶음 안에서 얕게 읽혔으면 이번 피로의 깊은 자세(엎드림·졸음)
             # 원인이 휴식(인지)으로 간 경우는 졸음 확정 직후 첫 개입일 때만 — 재시도의 휴식 제안은 원래 경로
             if result.state is not State.ACTION_BREAK or remembered is not None:
-                self._demo_plan = self.demo_wake.decide(label, profile.get("focus_help"))
+                who = getattr(rec, "active_profile_id", None) or profile.get("profile_id")
+                self._demo_plan = self.demo_wake.decide(label, profile.get("focus_help"), who)
             if self._demo_plan is not None:
                 specs, specs_arm = self._demo_plan["specs"], self._demo_plan["arm"]
                 if specs:
@@ -540,6 +562,7 @@ class LiveHub:
                   and self.control.episode is not None):
                 self.control.close_episode()
             self._absent_off(bool(frame.present), now)
+            self._hot_fan(bool(frame.present), view, now)
         if self.control is not None:
             summary["control"] = self.control.summary()
             summary["control"]["execution_mode"] = ("mock" if self.environment_policy.enabled or self.mock_plug is not None else "live")
@@ -594,10 +617,14 @@ class LiveHub:
         self.publish(envelope)
         self._maybe_request(result, prev_state, now)
         if self._demo_plan is not None:
-            if self._demo_plan["kind"] == "notice":
-                self._deliver_demo_notice(result, now)
+            if self._demo_plan["kind"] == "notice" and getattr(self, "_demo_notice", None) is None:
+                self._deliver_demo_notice(result, now)        # 빠른 길(_quick_notice_due)로 이미 떠 있으면 다시 내지 않는다
         else:
             self._close_demo_notice(now)
+            if self._quick_notice_due(frame, result):
+                print(f"[demo_wake] {self.personalize_recorder.last_posture_label} 감지 → 바로 안내 카드(빠른 시연)",
+                      file=self.out, flush=True)
+                self._deliver_demo_notice(result, now, state=State.ACTION_POSTURE, gate="auto")
             self._deliver_deviceless_arm(result, prev_state, specs, now, self._sound_pref())
         if (self.personalize_recorder is not None and self.personalize_recorder.last_episode_id
                 and self.pending_request is not None):
@@ -657,13 +684,14 @@ class LiveHub:
                         print(f"[control] 자리 복귀 — 다른 사람({self.active_profile_id})이라 이전 설정을 되돌리지 않음",
                               file=self.out, flush=True)
                         return
-                    specs = restore_specs(ep.commands)
+                    specs = restore_specs(getattr(self, "_absent_off_cmds", None) or ep.commands)
                     if specs:
                         print(f"[control] 자리 복귀 → 이전 설정으로 {len(specs)}건", file=self.out, flush=True)
                         self.control.on_enter_action("RETURN", "return", GateMode.AUTO, now, specs=specs)
             return
         self._absent_back_since = None
         if not getattr(self, "_absent_off_armed", False):
+            self._absent_off_retry(cfg, now)
             return
         if getattr(self, "_absent_off_since", None) is None:
             self._absent_off_since = now
@@ -676,6 +704,52 @@ class LiveHub:
             self._absent_off_ep = self.control.on_enter_action("ABSENT", "absent", GateMode.AUTO, now,
                                                                specs=list(cfg["commands"]))
             self._absent_off_profile = self.active_profile_id
+            self._absent_off_cmds = list(self._absent_off_ep.commands)   # 다시 보낸 명령까지 — 복귀 때 previous 를 여기서 모은다
+            self._absent_retry_n, self._absent_retry_ts = 0, now
+
+    def _absent_off_retry(self, cfg: dict[str, Any], now: float) -> None:
+        """부재 끄기 다시 보내기(control.yaml absent_off.retry_sec·retry_max, 11-05 사용자 "그것도 대비해 줘"). 11-05 18:50 실기: Pi 5 가 막
+        재부팅돼 기기가 안 붙은 채 끄기 3건이 모두 failed 였고, 부재가 이어지는 동안 다시 보내지 않아 기기가 켜진 채 남았다.
+        계속 자리가 비어 있으면 retry_sec 마다 실패·시간 초과로 끝난 기기만 다시 보낸다(최대 retry_max 번). 기기가 다시 붙는 순간 꺼진다."""
+        if getattr(self, "_absent_off_ep", None) is None or not getattr(self, "_absent_off_cmds", None):
+            return
+        every, limit = float(cfg.get("retry_sec", 10)), int(cfg.get("retry_max", 30))
+        if every <= 0 or self._absent_retry_n >= limit or now - self._absent_retry_ts < every:
+            return
+        latest: dict[str, Any] = {}
+        for c in self._absent_off_cmds:
+            latest[c.target_id] = c
+        failed = [t for t, c in latest.items() if c.status in ("failed", "timeout", "cancelled")]
+        specs = [dict(s) for s in cfg["commands"] if s.get("target_id") in failed]
+        if not specs:
+            return
+        self._absent_retry_n += 1
+        self._absent_retry_ts = now
+        print(f"[control] 자리 비움 끄기 다시 보냄 {self._absent_retry_n}/{limit} — {', '.join(failed)}", file=self.out, flush=True)
+        ep = self.control.on_enter_action("ABSENT", "absent", GateMode.AUTO, now, specs=specs)
+        self._absent_off_cmds.extend(ep.commands)
+
+    def _hot_fan(self, present: bool, view: Any, now: float) -> None:
+        """더위 선풍기(control.yaml hot_fan, 11-05 사용자 "온도 자체가 피로랑 관계없이 30도 이상이면 선풍기 틀어버리자").
+        자리에 있고 방 온도가 on_c 이상이면 선풍기 켜기를 한 번 보낸다. 온도가 rearm_below_c 아래로 내려가야 다시 보낸다 —
+        켜 둔 뒤 사람이 끄면 더운 동안 다시 켜지 않는다. 부재 끄기와 싸우지 않게 재실일 때만. FSM 상태·피로와 무관."""
+        cfg = self.control_cfg.get("hot_fan") or {}
+        if not cfg.get("enabled", False) or not cfg.get("commands"):
+            return
+        env = view.fresh("env", now, float((self.ingest_cfg.get("freshness_sec") or {}).get("env", 30)))
+        data = (env.data or {}) if env is not None else {}
+        temp = data.get("temp_c") if data.get("temp_valid", True) else None
+        if temp is None:
+            return
+        on_c = float(cfg.get("on_c", 30.0))
+        if float(temp) < float(cfg.get("rearm_below_c", on_c - 1.0)):
+            self._hot_fan_armed = True
+            return
+        if float(temp) >= on_c and present and getattr(self, "_hot_fan_armed", True):
+            self._hot_fan_armed = False
+            print(f"[control] 방 온도 {float(temp):.1f} °C ≥ {on_c:g} °C → 선풍기 켜기", file=self.out, flush=True)
+            self.control.on_enter_action("HOT", "environment", GateMode.AUTO, now, specs=list(cfg["commands"]),
+                                         arm="hot_fan")
 
     def set_personalize(self, on: bool) -> None:
         """개인화(개입 선택 정책 + 카드 응답 반응 학습)를 지금 켜거나 끈다. DESKMATE_PERSONALIZE=off 와 같은 뜻을 재시작 없이."""
@@ -744,7 +818,7 @@ class LiveHub:
         spec = self.personalize_policy.arms.get(arm) if self.personalize_policy is not None else None
         channel = str(getattr(spec, "channel", "display") or "display")
         kind, prompt = self._REQUEST_STATES[result.state]
-        expires = float(self.fsm_cfg["timers"].get("focus_break_poll_sec", 180))
+        expires = self._card_expires_sec
         self._arm_context = arm
         try:
             emitted = self.arm_deliverer.deliver(
@@ -759,12 +833,26 @@ class LiveHub:
                 self.seq += 1
                 self._mark_card(now, item["data"]["expires_in_s"], kind)      # 안내가 떠 있는 동안 환기·확인 카드는 기다린다
 
-    def _deliver_demo_notice(self, result, now: float) -> None:
-        """빠른 시연 규칙이 거북목·턱 괴기에 고른 바른 자세 안내(arm posture_card)를 카드로 낸다 — 밴딧 arm 전달과 같은 길."""
-        kind, prompt = self._REQUEST_STATES[result.state]
-        expires = float(self.fsm_cfg["timers"].get("focus_break_poll_sec", 180))
+    def _quick_notice_due(self, frame, result) -> bool:
+        """빠른 시연에서 거북목·턱 괴기(demo_wake notice_labels)가 이번 판정에 한 번이라도 잡히면 바로 안내 카드를 낸다(11-05 사용자
+        "거북목이라는 사실이 한번이라도 잡히면 5초안에 거북목 판단 후 안내카드"). 원래 길(의심 → 확정 → 원인 → 개입)은 판정 4번(5 s 주기 15~20 s)
+        걸렸다(22:00:02 감지 → 22:00:17 카드). 카드가 떠 있거나, 자리 비움이거나, 이미 개입 상태(ACTION_*·MONITOR·휴식)면 내지 않는다."""
+        rec = self.personalize_recorder
+        if (self.demo_speed.speed != "fast" or rec is None or not self.demo_wake.enabled
+                or getattr(self, "_demo_notice", None) is not None or not bool(frame.present)
+                or getattr(self, "_episode_deep", None)):         # 엎드림·졸음 피로 중 턱 괴기로 흔들린 것은 깊은 깨우기 몫(원래 길)
+            return False
+        if result.state.value.startswith(("ACTION_", "MONITOR", "REST", "ESCALATE")):
+            return False
+        return rec.last_posture_label in self.demo_wake.notice_labels
+
+    def _deliver_demo_notice(self, result, now: float, *, state: State | None = None, gate: str | None = None) -> None:
+        """빠른 시연 규칙이 거북목·턱 괴기에 고른 바른 자세 안내(arm posture_card)를 카드로 낸다 — 밴딧 arm 전달과 같은 길.
+        state·gate: 빠른 길(_quick_notice_due)은 FSM 이 아직 집중·의심 상태라 ACTION_POSTURE 카드 종류·auto 로 낸다."""
+        kind, prompt = self._REQUEST_STATES[state or result.state]
+        expires = self._card_expires_sec
         emitted = self.arm_deliverer.deliver(
-            state=result.state.value, kind=kind, prompt_code=prompt, gate=result.gate.value, arm="posture_card",
+            state=(state or result.state).value, kind=kind, prompt_code=prompt, gate=gate or result.gate.value, arm="posture_card",
             label="자세 안내 카드", channel="display", explanation=None, cause=result.cause, now=now, seq=self.seq,
             sound_pref=self._sound_pref(), c_fatigue=self._pub_scores(result)[0], expires_in_s=expires)
         for item in emitted:
@@ -935,7 +1023,7 @@ class LiveHub:
             self.pending_request = None
             return
         kind, prompt = self._REQUEST_STATES[result.state]
-        expires = float(self.fsm_cfg["timers"].get("focus_break_poll_sec", 180))
+        expires = self._card_expires_sec
         if self.control is not None and self._control_owns(result.state):
             # 제어가 맡은 제안(ENV, 기본 명령이 있는 POSTURE)은 카드 만료를 디스패처의 제안 시한과 맞춘다
             expires = min(expires, self.control.suggest_timeout)

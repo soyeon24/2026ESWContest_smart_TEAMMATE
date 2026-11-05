@@ -12,6 +12,8 @@
   period_sec  fast 일 때 판정 주기(초). 11-03 사용자 "판정 주기 5초로" — 대본 8분. live.py 가 hub.period 로 쓴다.
   absent_off_after_sec  fast 일 때 자리 비움 → 기기 끄기까지(초, control.yaml absent_off.after_sec 대신). 11-04 사용자
               "자리비움 한번 뜨고 5초 안으로 주변기기 다 꺼지게". 한 tick 만 튄 부재(11-04 13:35:10)는 다음 tick 재실이면 안 끈다.
+  fatigue_group  fast 일 때 ingest tof.fatigue_group 으로 넣는다 {labels, min_share} — 엎드림·턱 괴기·졸음 확률을 합쳐 피로 하나로
+              본다(ingest/mapping._merge_fatigue_group, 11-05 사용자 "자세가 달라도 피로이면 합쳐진 피로를 기준으로"). normal 이면 뺀다.
 
 지금 모드는 state/phase sensor_summary.demo_mode 로 낸다 — 화면이 "빠른 시연" 배지를 띄운다.
 제한 Python(보드)에서 돈다 — 표준 라이브러리만.
@@ -26,7 +28,8 @@ SPEEDS = ("normal", "fast")
 class DemoSpeed:
     def __init__(self, cfg: dict[str, Any] | None, timers: dict[str, Any],
                  on_log: Callable[[str], None] | None = None,
-                 posture_delta: dict[str, Any] | None = None) -> None:
+                 posture_delta: dict[str, Any] | None = None,
+                 tof_cfg: dict[str, Any] | None = None) -> None:
         cfg = cfg or {}
         self.enabled = bool(cfg.get("enabled", False))
         self.max_on_sec = float(cfg.get("max_on_sec", 0) or 0)
@@ -36,6 +39,10 @@ class DemoSpeed:
         self._delta = posture_delta if posture_delta is not None else {}   # ingest tof.posture_delta 와 같은 dict — 다음 frame 부터 읽힌다
         self._fast_delta = {k: float(v) for k, v in (cfg.get("posture_delta") or {}).items() if k in self._delta}
         self._normal_delta: dict[str, Any] = {}
+        self._tof = tof_cfg if tof_cfg is not None else {}                 # ingest tof 절 — fast 동안 fatigue_group 을 넣는다
+        group = cfg.get("fatigue_group") or {}
+        self._fast_group = dict(group) if group.get("labels") else None
+        self._normal_group: Any = None
         self.period_sec = float(cfg.get("period_sec") or 0) or None   # fast 판정 주기(live.py 가 hub.period 로 쓴다). 없으면 그대로
         self.absent_off_after_sec = (float(cfg["absent_off_after_sec"]) if cfg.get("absent_off_after_sec") is not None
                                      else None)                       # fast 부재 끄기 시간(live._absent_off). 없으면 control.yaml 값
@@ -69,13 +76,26 @@ class DemoSpeed:
             self._timers.update(self._fast)
             self._normal_delta = {k: self._delta[k] for k in self._fast_delta}
             self._delta.update(self._fast_delta)
+            if self._fast_group is not None:
+                self._normal_group = self._tof.get("fatigue_group")
+                self._tof["fatigue_group"] = self._fast_group
         else:
             self._timers.update(self._normal)
             self._delta.update(self._normal_delta)
+            if self._fast_group is not None:
+                if self._normal_group is None:
+                    self._tof.pop("fatigue_group", None)
+                else:
+                    self._tof["fatigue_group"] = self._normal_group
         self.speed, self.since, self.last_reason = speed, now, reason
         changed = ", ".join([f"{k} {self._normal[k]}→{self._timers[k]}" for k in self._fast]
                             + [f"{k} {self._normal_delta[k]}→{self._delta[k]}" for k in self._fast_delta])
         self._log(f"[demo_fast] {speed} ({reason}) {changed}")
+
+    @property
+    def fatigue_labels(self) -> tuple[str, ...]:
+        """지금 피로로 합쳐 보는 자세 라벨(ingest tof.fatigue_group.labels). 묶음이 없으면 ()."""
+        return tuple(str(x) for x in ((self._tof.get("fatigue_group") or {}).get("labels") or ()))
 
     def snapshot(self, now: float) -> dict[str, Any]:
         view: dict[str, Any] = {"speed": self.speed, "enabled": self.enabled}
@@ -84,6 +104,8 @@ class DemoSpeed:
             view["timers"] = {k: self._timers[k] for k in self._fast}
             if self._fast_delta:
                 view["posture_delta"] = {k: self._delta[k] for k in self._fast_delta}
+            if self.fatigue_labels:
+                view["fatigue_group"] = list(self.fatigue_labels)
             if self.period_sec:
                 view["period_sec"] = self.period_sec
             if self.max_on_sec > 0:

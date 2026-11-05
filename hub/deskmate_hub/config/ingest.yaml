@@ -101,7 +101,10 @@ tof:
     # 10-27 실측: 앉음 아랫줄 15~45 cm·뒤로 젖힘 62~67 cm, 빈자리 79~89 cm. 빈자리에서 GRU 가 40 s 동안 엎드림·뒤로 기댐을 냈고
     # (away 0.10~0.27), 뒤로 젖히면 away 0.9 로 튐. mmWave 재실로 가리던 판(6a44841)은 mmWave 가 너무 예민해 이 규칙으로 바꿨다.
     # 재실 판정(presence.source)은 그대로. 0 이면 끔. 격자가 없거나 낡았으면(freshness_sec.tof_grid) 서비스 판정 그대로.
-    away_bottom_row_mm: 700
+    # 11-05 21:30 사용자 "자리비움 거리 80까지 늘려" — 졸 때 고개가 내려가 아랫줄이 70 cm 를 넘어 빈 의자(자리 비움 → 기기 끄기)로 봤다.
+    # 보드 a8df505a 의 payload 에서 이 값만 바꾼 63b3fd0d 설치(백업 deskmate_hub_service.bak_11052130_a8df505a).
+    # 11-06 02:1x 사용자 "자리비움 90cm까지 늘리고" — 80 → 90 cm.
+    away_bottom_row_mm: 1000   # 11-06 02:35 사용자 "전체 다 1m로" — 보드 hub c0a5c751
   min_confidence: 0.3           # posture_confidence 가 이보다 낮으면 unknown 으로 본다
   min_confidence_by_label: {}    # 라벨별 추가 하한(예 {face_down: 0.99}). 보드 기본 없음 — 시연 프로파일만 (10-25 PC 시뮬: 글쓰기 오판 거르기)
   posture_phi:

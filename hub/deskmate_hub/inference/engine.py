@@ -58,6 +58,10 @@ class FSMEngine:
         self._remaining_options: list[str] = []
         # 첫 원인이 효과가 없어 다른 원인을 재시도하는 중인지 (gate.retry_max 로 자동 실행을 낮춘다)
         self._retry: bool = False
+        # gate.rest(11-05 사용자 "REST 기능 없애버리자 — 사용자가 피로해도 바쁜데 기기가 먼저 쉬는 느낌, 우리 취지랑 안 맞아"):
+        # false 면 어떤 길로도 REST(강제 휴식)에 들어가지 않는다. 개입을 다 써도 깨지 않으면 조용히 지켜보다(_exhausted) 깨면 회복.
+        self._rest_on: bool = bool(self.cfg["gate"].get("rest", True))
+        self._exhausted: bool = False
         # timers.fatigue_hold_min_frac < 1 이면 피로 유지(elevated·confirm)를 "지난 hold 초 tick 중 이 비율 이상이 임계 위"로 본다.
         # 1(기본)이면 지금처럼 한 tick 만 내려가도 처음부터 다시 잰다.
         self._hold_frac: float = float(self.tm.get("fatigue_hold_min_frac", 1.0))
@@ -233,6 +237,7 @@ class FSMEngine:
                 if held:
                     self._remaining_options = list(_ALL_CAUSES)
                     self._retry = False
+                    self._exhausted = False
                     self._goto(State.FATIGUE, now)
                     actions.append("log_fatigue_event")
             else:
@@ -268,7 +273,11 @@ class FSMEngine:
                 State.ACTION_BREAK: "break_suggest",
             }[s])
             gate = self._action_gate(c.c_fatigue)
-            if s is State.ACTION_BREAK and frame.break_accepted:
+            if s is State.ACTION_BREAK and frame.break_accepted and not self._rest_on:
+                self._monitor_entry_fatigue = c.c_fatigue          # 쉬기 제안 수락 — 강제 휴식 상태 없이 지켜보기로
+                self._goto(State.MONITOR, now)
+                actions.append("break_accepted")
+            elif s is State.ACTION_BREAK and frame.break_accepted:
                 self._rest_since = now
                 self._goto(State.REST, now)
                 actions.append("rest_timer.start")
@@ -285,6 +294,8 @@ class FSMEngine:
             recovered_below = self.th.get("monitor_recovered_below")
             if (now - self._state_since) < self.tm.get("monitor_window_sec", 0):
                 pass
+            elif self._exhausted and (asleep or (asleep is None and c.c_fatigue >= self._monitor_entry_fatigue)):
+                pass                                              # 개입을 다 썼다 — 기기를 더 부르지 않고 깰 때까지 지켜본다(gate.rest false)
             elif recovered_below is not None and not asleep and c.c_fatigue < float(recovered_below):
                 # thresholds.monitor_recovered_below(시연): 점수가 이미 회복 수준이면 진입 대비 부호(0.03 vs 0.05 같은 잡음)로
                 # 격상하지 않는다 — PC 시뮬 10-25: 깬 뒤 C 0.03~0.08 인데 MONITOR→ESCALATE→ACTION_BREAK→REST 로 이어졌다.
@@ -322,7 +333,16 @@ class FSMEngine:
 
         elif s is State.ESCALATE:
             actions.append("log_intervention_fail")
-            if self._asleep(frame) and self.cfg["gate"].get("asleep_retry") == "rest":
+            if not self._rest_on:
+                if self._remaining_options and not self._exhausted:
+                    self._retry = True
+                    self._goto(State.CAUSE_ANALYSIS, now)         # 다른 원인 재시도(강제 휴식 대신)
+                else:
+                    self._exhausted = True
+                    self._monitor_entry_fatigue = c.c_fatigue
+                    self._goto(State.MONITOR, now)
+                    actions.append("interventions_exhausted")
+            elif self._asleep(frame) and self.cfg["gate"].get("asleep_retry") == "rest":
                 self._rest_since = now                            # 아직 졸음 — 카드(제안) 재시도 대신 바로 강제 휴식
                 self._goto(State.REST, now)
                 actions.append("force_rest")

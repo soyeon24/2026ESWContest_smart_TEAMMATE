@@ -123,6 +123,7 @@ def _hub(tmp_path, profile=""):
     hub = LiveHub(cache, fsm_cfg=None if profile else load_config(), control_cfg=CONTROL_CFG, publish=states.append,
                   publish_request=reqs.append, out=io.StringIO(), profile=profile,
                   personalize_cfg=pcfg, personalize_log_path=str(tmp_path / "p.jsonl"))
+    hub.engine._rest_on = True          # REST 알림은 gate.rest true(예전 동작)일 때만 — 11-05 기본은 REST 없음
     return hub, cache, reqs, states
 
 

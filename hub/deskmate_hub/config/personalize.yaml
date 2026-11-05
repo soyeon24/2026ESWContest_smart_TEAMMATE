@@ -100,7 +100,7 @@ arms:
   - {id: air_fan_up, label_ko: 공기청정기 풍량 올리기, causes: [environment], channel: air, auto: true,
      device: {target_id: air_purifier, operation: set_mode, value: high, undo_value: auto}}
   - {id: fan_on, label_ko: 환기팬(선풍기) 켜기, causes: [environment], channel: fan, auto: true,
-     device: {target_id: vent_fan, operation: set_power, value: "on", undo_value: "off"}}
+     device: {target_id: vent_fan, operation: set_level, value: 3, undo_value: 0}}
   - {id: ventilate_suggest, label_ko: 창문 환기, causes: [environment], channel: display, auto: false}
   - {id: posture_card, label_ko: 자세 안내 카드, causes: [posture], channel: display, auto: true}
   - {id: wake_light, label_ko: 무드등 밝혀 깨우기, causes: [posture], channel: lamp, auto: true,       # 10-25: FSM 기본(actions.posture)과 같은 명령을 밴딧 arm 으로 — "직접 어둡게" 로 배울 수 있게

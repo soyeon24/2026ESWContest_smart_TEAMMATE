@@ -53,7 +53,7 @@ def test_auto_send_then_result_gives_one_record_with_latency(tmp_path):
     assert (rec["previous"], rec["actual"], rec["node"]) == (100, 160, "pi5") and rec["undo"] is False
     # 파일·sink 에는 단계마다 한 줄(sent → result), 마지막 줄이 최종
     assert [r["event"] for r in lines(tmp_path)] == ["sent", "result"] == [r["event"] for r in sunk]
-    assert lines(tmp_path)[-1] == rec and "arm" not in sent[0]                 # arm 은 MQTT payload 에 안 싣는다
+    assert lines(tmp_path)[-1] == rec and sent[0]["arm"] == "wake_light"     # 11-06 부터 arm 도 MQTT payload 에(화면 카드 문구)
 
 
 def test_failed_result_keeps_error_code_and_mismatch_reason(tmp_path):
@@ -295,6 +295,7 @@ def test_live_dispatcher_and_rest_speak_reach_sink_and_file(tmp_path):
 
 def test_live_rest_entry_logs_speaker(tmp_path):
     hub, cache, sunk = _hub(tmp_path)
+    hub.engine._rest_on = True          # gate.rest true(예전 동작) 경로 — 11-05 기본은 REST 없음
     t = 0.0
     while t <= float(hub.fsm_cfg["timers"]["baseline_sec"]) + 2 * hub.period:
         cache.put("mmwave", mm(t, level=40)); cache.put("env", env(t, co2=700)); hub.tick_once(t); t += hub.period

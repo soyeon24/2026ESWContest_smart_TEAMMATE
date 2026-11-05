@@ -158,7 +158,10 @@ def test_fatigue_hold_tolerates_short_dips_only_when_enabled(frac, reaches):
 
 
 def test_intervention_failure_escalates_and_forces_rest():
-    e = FSMEngine()
+    from deskmate_hub.inference.config import load_config
+    cfg = load_config()
+    cfg["gate"]["rest"] = True                              # 예전 동작(강제 휴식) — 11-05 기본은 gate.rest false
+    e = FSMEngine(cfg)
     t = drive_to_focus(e)
     sig = {"posture": {"delta": 0.9}, "elapsed": {"delta": 0.9}, "keystroke": {"delta": 0.9}}
     t = confirm_fatigue(e, t, sig)
@@ -280,6 +283,7 @@ def test_monitor_judges_by_posture_when_still_asleep(asleep_delta, want):
     cfg["timers"]["monitor_window_sec"] = 30
     cfg["thresholds"]["still_asleep_delta"] = asleep_delta
     cfg["gate"]["asleep_retry"] = "rest"
+    cfg["gate"]["rest"] = True
     e = FSMEngine(cfg)
     t = drive_to_focus(e)
     sig = {"posture": {"delta": 1.0}, "elapsed": {"delta": 0.9}, "keystroke": {"delta": 0.9}}
@@ -293,3 +297,41 @@ def test_monitor_judges_by_posture_when_still_asleep(asleep_delta, want):
     assert e.tick(frame(t + 60, sig=dip)).state is want
     if want is State.ESCALATE:
         assert e.tick(frame(t + 70, sig=dip)).state is State.REST      # 다른 원인 제안 대신 바로 강제 휴식
+
+
+def test_no_rest_retries_then_watches_until_awake():
+    """11-05 사용자 "REST 기능 없애버리자 — 사용자가 피로해도 바쁜데 기기가 먼저 쉬는 느낌" (gate.rest false, 기본):
+    개입이 다 실패해도 REST 에 들어가지 않는다. 남은 원인을 재시도한 뒤 다 쓰면 MONITOR 에서 기기를 더 부르지 않고
+    지켜보다가, 깨면(점수 내려감) RECOVERY → 집중으로 돌아간다."""
+    e = FSMEngine()
+    assert e.cfg["gate"]["rest"] is False
+    t = drive_to_focus(e)
+    sig = {"posture": {"delta": 0.9}, "elapsed": {"delta": 0.9}, "keystroke": {"delta": 0.9}}
+    t = confirm_fatigue(e, t, sig)
+    seen, actions = [], []
+    for i in range(30):
+        r = e.tick(frame(t + i * 30, sig=sig, action_done=True))
+        seen.append(r.state)
+        actions += r.actions
+    assert State.REST not in seen
+    assert seen.count(State.CAUSE_ANALYSIS) == 3                  # 세 원인 한 번씩 — 그 뒤로는 재시도하지 않는다
+    assert "interventions_exhausted" in actions and e.state is State.MONITOR
+    awake = {"posture": {"delta": 0.0}, "elapsed": {"delta": 0.1}, "keystroke": {"delta": 0.0}}
+    t2 = t + 30 * 30
+    for i in range(6):
+        e.tick(frame(t2 + i * 30, sig=awake))
+    assert e.state in FOCUS_STATES_FOR_TEST
+
+
+FOCUS_STATES_FOR_TEST = (State.FOCUS_PC, State.FOCUS_MIXED, State.FOCUS_NPC)
+
+
+def test_no_rest_break_accept_goes_to_monitor():
+    """쉬기 제안(카드)을 수락해도 REST 상태 없이 지켜보기로 (gate.rest false)."""
+    e = FSMEngine()
+    t = drive_to_focus(e)
+    sig = {"posture": {"delta": 0.9}, "elapsed": {"delta": 0.9}, "keystroke": {"delta": 0.9}}
+    confirm_fatigue(e, t, sig)
+    e.state = State.ACTION_BREAK
+    r = e.tick(frame(t + 100, sig=sig, break_accepted=True))
+    assert r.state is State.MONITOR and "break_accepted" in r.actions

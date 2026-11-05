@@ -263,8 +263,8 @@ def grid(now, bottom_mm, *, rest_mm=1500, status=5, sensors=2):
 
 
 def test_seated_away_is_masked_when_bottom_row_is_near(cfg):
-    """아랫줄에 70 cm 보다 가까운 칸이 있으면 away 를 1위 자세로 — 화면 두 자세 줄 모두. FSM 증거·재실은 그대로."""
-    assert cfg["tof"]["service"]["away_bottom_row_mm"] == 700
+    """아랫줄에 80 cm(11-05 70 → 80) 보다 가까운 칸이 있으면 away 를 1위 자세로 — 화면 두 자세 줄 모두. FSM 증거·재실은 그대로."""
+    assert cfg["tof"]["service"]["away_bottom_row_mm"] == 1000   # 11-05 80 → 11-06 90 → 100 cm
     cache = SensorCache()
     cache.put("mmwave", mm(100.0, present=False))                       # mmWave 는 재실 판정만 — 가림과 무관
     cache.put("tof_grid", grid(100.0, 620))
@@ -291,8 +291,8 @@ def test_seated_away_mask_never_makes_drowsy_evidence(cfg):
 
 
 @pytest.mark.parametrize("bottom,status,age", [
-    (700, 5, 0.0),       # 70 cm 이상이면 사람 없음(가정)
-    (900, 5, 0.0),
+    (1000, 5, 0.0),      # 1 m 이상이면 사람 없음(가정, 11-05 70 → 80 → 11-06 90 → 100)
+    (1100, 5, 0.0),
     (-1, 5, 0.0),        # 타깃 없음
     (500, 255, 0.0),     # 무효 칸은 안 셈
     (500, 5, 10.0),      # 격자가 낡음
@@ -310,7 +310,7 @@ def test_far_bottom_row_forces_away_over_service_label(cfg):
     """빈자리(아랫줄 전부 70 cm 이상)인데 GRU 가 엎드림을 내면 away 로 — 빈 의자의 엎드림이 피로 증거가 되지 않게(10-27 실측)."""
     cache = SensorCache()
     cache.put("mmwave", mm(100.0, present=True, dist=60))
-    cache.put("tof_grid", grid(100.0, 870))
+    cache.put("tof_grid", grid(100.0, 1050))
     cache.put("tof_service", svc(100.0, posture="face_down", conf=0.995))
     out = sensor_summary(cache.snapshot(), 100.0, cfg, SessionTracker())
     assert out["tof"]["posture"] == "away" and out["tof"]["away_forced"] is True
@@ -435,3 +435,39 @@ def test_poller_thread_runs_and_stops(cfg, state_server):
         deadline.wait(0.05)
     poller.stop()
     assert poller.stats.ok >= 2 and cache.tof_service is not None
+
+
+# 11-05 빠른 시연 피로 묶음(fsm.yaml demo_fast.fatigue_group → ingest tof.fatigue_group)
+GROUP = {"labels": ["face_down", "chin_rest", "drowsy"], "min_share": 0.2}
+
+
+def _p(**kw):
+    base = {k: 0.0 for k in SERVICE_LABELS}
+    base.update(kw)
+    base["upright"] = round(1.0 - sum(v for k, v in base.items() if k != "upright"), 4)
+    return base
+
+
+@pytest.mark.parametrize("probs,top,label,mass", [
+    (_p(face_down=0.97, chin_rest=0.025), "face_down", "face_down", 0.995),
+    (_p(face_down=0.6, chin_rest=0.39), "face_down", "face_down", 0.99),
+    (_p(face_down=0.05, chin_rest=0.945), "chin_rest", "chin_rest", 0.995),
+    (_p(chin_rest=0.7, drowsy=0.25), "chin_rest", "chin_rest", 0.95),       # 턱 괴기에 섞인 drowsy 잡음은 대표가 아니다
+    (_p(face_down=0.3, drowsy=0.69), "drowsy", "face_down", 0.99),
+])
+def test_fatigue_group_merges_probabilities(probs, top, label, mass):
+    from deskmate_hub.ingest.mapping import _merge_fatigue_group
+    out = _merge_fatigue_group(svc_probs(1.0, probs, posture=top), {"tof": {"fatigue_group": GROUP}}).data
+    assert out["posture"] == label and out["posture_confidence"] == pytest.approx(mass) and out["fatigue_merged"] == top
+    assert out["drowsy"] is False
+
+
+def test_fatigue_group_leaves_other_postures_and_empty_seat():
+    from deskmate_hub.ingest.mapping import _merge_fatigue_group
+    cfg = {"tof": {"fatigue_group": GROUP}}
+    up = svc_probs(1.0, _p(face_down=0.3, chin_rest=0.1), posture="upright")      # 피로 합 0.4 < 0.5 → 그대로
+    assert _merge_fatigue_group(up, cfg) is up
+    away = svc_probs(1.0, dict(_p(face_down=0.6), away=0.0), posture="face_down")
+    forced = Sample(received=1.0, ts=1.0, seq=None, data=dict(away.data, posture="away", away_forced=True))
+    assert _merge_fatigue_group(forced, cfg) is forced                              # 빈자리로 바꾼 표본은 되돌리지 않는다
+    assert _merge_fatigue_group(away, {"tof": {}}) is away                          # 묶음이 없으면(운영) 그대로

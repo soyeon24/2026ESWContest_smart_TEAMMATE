@@ -188,3 +188,43 @@ def test_within_cooldown_the_next_device_changes_even_without_reaction(tmp_path)
     hub, cache = _personal_hub(tmp_path)
     arms, _ = _two_naps(hub, cache, None, gap_s=120)
     assert arms == ["wake_light", "sound_cue"], arms
+
+
+def test_fast_mode_leaves_focus_break_after_5s_when_fatigue_is_high():
+    """11-05 22:3x 사용자 "5초로 줄여" — 22:22~22:25 실기: 집중 저하(FOCUS_BREAK) 180 s 관찰 동안 피로 0.95·엎드림 0.995 에도
+    깨우지 못했다. 빠른 시연은 fsm.yaml demo_fast.timers.focus_break_poll_sec 5 로 5 s 뒤 피로 의심으로 넘어간다. normal 은 그대로 180 s."""
+    from deskmate_hub.inference import FSMEngine, SensorFrame, Signal
+
+    def frame(t, sig):
+        return SensorFrame(now=t, present=True, pc_ratio=0.9, signals={k: Signal(**v) for k, v in sig.items()})
+
+    def run(speed):
+        e = FSMEngine()
+        DemoSpeed(e.cfg["demo_fast"] | {"enabled": True}, e.tm).observe(_sample(0.0, speed), 0.0)
+        e.tick(SensorFrame(now=0.0, present=True, pc_ratio=0.9, signals={}, touch=True))
+        e.tick(frame(float(e.tm["baseline_sec"]) + 1, {}))
+        t = float(e.tm["baseline_sec"]) + 2
+        e.tick(frame(t, {}))
+        assert e.tick(frame(t + 5, {"posture": {"phi": 0.9, "delta": 0.1}, "elapsed": {"phi": 0.9, "delta": 0.1}})).state is State.FOCUS_BREAK
+        tired = {"posture": {"phi": 0.9, "delta": 0.9}, "elapsed": {"phi": 0.9, "delta": 0.9}}
+        return e.tick(frame(t + 10, tired)).state, e.tick(frame(t + 185, tired)).state
+
+    assert run("fast")[0] is State.FATIGUE_SUSPECT
+    first, later = run("normal")
+    assert first is State.FOCUS_BREAK and later is State.FATIGUE_SUSPECT
+
+
+def test_fast_mode_drowsy_weight_is_minimal(tmp_path):
+    """11-06 사용자 "꾸벅졸음은 빠른시연에서는 가중치를 최소로" → "졸음 1/5 로": fast 면 drowsy 라벨·모델 drowsy 플래그 모두 피로 증거 0.2,
+    normal 이면 1.0 으로 돌아온다. 엎드림은 그대로 1.0."""
+    from deskmate_hub.ingest.mapping import _tof_posture_signal
+    hub, cache, _ = _hub(tmp_path / "f", "demo-b")
+    tof = hub.ingest_cfg["tof"]
+    sample = {"posture": "drowsy", "posture_confidence": 0.95, "drowsy": True, "drowsy_model": True}
+    assert _tof_posture_signal(sample, tof).delta == 1.0
+    hub.demo_speed.set("fast", 0.0, "test")
+    assert tof["posture_delta"]["drowsy"] == 0.2                     # 11-06 0 → 1/5
+    assert _tof_posture_signal(sample, tof).delta == 0.2
+    assert _tof_posture_signal({"posture": "face_down", "posture_confidence": 0.995}, tof).delta == 1.0
+    hub.demo_speed.set("normal", 1.0, "test")
+    assert _tof_posture_signal(sample, tof).delta == 1.0

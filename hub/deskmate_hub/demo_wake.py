@@ -12,6 +12,11 @@
   warm_only(11-05 사용자 "온도 영향 받아서 선풍기를 고른다" → "24도 말고 관측하다가 온도 상승하면 그때"): 이 항목(wind)은
     방 온도가 최근 warm_window_sec 동안의 가장 낮은 값보다 warm_rise_c 이상 올랐을 때만 고른다(observe_temp 로 tick 마다 기록).
     안 올랐으면 건너뛰고 다음 순위로 간다. B(조명 › 선풍기 › 알림)는 더워지면 조명+선풍기, 그대로면 조명+음악. 온도를 모르면 건너뛴다.
+  warm_temp_c(11-05 21:3x 사용자 "상승 보지 말고 30도 기준으로만 판단해"): 있으면 상승 대신 지금 방 온도가 이 값 이상일 때만 덥다고 본다.
+    실기에서 선풍기 바람이 센서를 식혀 최저값이 낮게 찍히고, 꺼진 뒤 원래로 돌아온 것을 1.0 °C 상승으로 봐 선풍기를 또 켰다.
+  escalate_by_count(11-06 사용자 "태환은 처음에는 음악을, 두번째에는 음악과 조명"): 켜면 기기 수를 자세가 아니라 횟수로 정한다 —
+    같은 사람(profile)의 첫 깨우기는 도움 순서 1순위 하나, 두 번째부터는 1·2순위 둘. 자세(mild·deep)는 깨우기인지만 가른다.
+    횟수는 사람마다 따로 세고, 빠른 시연을 새로 켜면(reset) 처음부터.
   모든 명령은 ignore_cooldown — 같은 사람이 같은 기기로 두 번 깨워지는 장면(B 조명 → 조명)이 디스패처 300 s 쿨다운에 막히지 않게.
 
 제한 Python(보드)에서 돈다 — 표준 라이브러리만.
@@ -35,7 +40,10 @@ class DemoWake:
         self.warm_only = tuple(str(h) for h in (cfg.get("warm_only") or ()))
         self.warm_rise_c = float(cfg.get("warm_rise_c", 0.5))
         self.warm_window_sec = float(cfg.get("warm_window_sec", 600))
+        self.warm_temp_c = float(cfg["warm_temp_c"]) if cfg.get("warm_temp_c") is not None else None
         self._temps: deque[tuple[float, float]] = deque()
+        self.escalate_by_count = bool(cfg.get("escalate_by_count", False))
+        self._wakes: dict[str, int] = {}           # 사람별 깨우기 횟수(escalate_by_count)
         self.rule_labels = self.notice_labels + self.mild_labels + self.deep_labels
         self.last: dict[str, Any] | None = None
 
@@ -52,19 +60,41 @@ class DemoWake:
             return None
         return round(self._temps[-1][1] - min(t for _, t in self._temps), 2)
 
-    def decide(self, label: str, focus_help: Iterable[str] | None) -> dict[str, Any] | None:
+    def temp_now(self) -> float | None:
+        """마지막으로 관측한 방 온도(°C). 값이 없으면 None."""
+        return self._temps[-1][1] if self._temps else None
+
+    def is_warm(self) -> bool:
+        """덥다 — warm_temp_c 가 있으면 지금 온도 ≥ warm_temp_c, 없으면 최근 창 최저 대비 상승 ≥ warm_rise_c. 온도를 모르면 False."""
+        if self.warm_temp_c is not None:
+            now = self.temp_now()
+            return now is not None and now >= self.warm_temp_c
+        rise = self.temp_rise()
+        return rise is not None and rise >= self.warm_rise_c
+
+    def reset(self) -> None:
+        """깨우기 횟수를 처음부터(빠른 시연을 새로 켤 때)."""
+        self._wakes.clear()
+
+    def wakes(self, who: str | None) -> int:
+        return self._wakes.get(str(who or ""), 0)
+
+    def decide(self, label: str, focus_help: Iterable[str] | None, who: str | None = None) -> dict[str, Any] | None:
         """이 자세에 낼 것. {"kind": "notice"|"wake", "arm", "helps", "specs"} — 규칙에 없는 자세면 None(원래 경로)."""
         if not self.enabled:
             return None
         rise = self.temp_rise()
-        warm = rise is not None and rise >= self.warm_rise_c
+        warm = self.is_warm()
         # 11-05 사용자 "원인이 자세 + 환경일 수 있잖아 — 자세 + 환경이면 조명과 선풍기 둘 다": 자세 몫은 도움 순서로 고르고,
         # 방 온도가 올랐으면(환경 몫) 선풍기를 더한다. 사람·자세와 상관없이 "더위 때문에 피로하면 선풍기".
         heat = [h for h in self.warm_only if self.helps.get(h)] if warm else []
         if label in self.notice_labels:
             plan = {"kind": "notice", "arm": "posture_card", "label": label, "helps": [], "specs": []}
         elif label in self.mild_labels or label in self.deep_labels:
-            n = 2 if label in self.deep_labels else 1
+            if self.escalate_by_count:
+                n = 1 if self.wakes(who) == 0 else 2      # 처음은 1순위 하나, 두 번째부터 1·2순위
+            else:
+                n = 2 if label in self.deep_labels else 1
             order = [str(h) for h in (focus_help or [])] or self.default_order
             helps = [h for h in order if self.helps.get(h) and (warm or h not in self.warm_only)][:n]
             plan = {"kind": "wake", "label": label, "helps": helps}
@@ -79,9 +109,15 @@ class DemoWake:
         plan["arm"] = "posture_card" if plan["kind"] == "notice" else "demo_wake:" + "+".join(plan["helps"])
         plan["causes"] = ([] if plan["label"] == "heat" else ["posture"]) + (["environment"] if heat else [])
         plan["temp_rise_c"] = rise
-        self.last = {k: plan[k] for k in ("kind", "arm", "label", "helps", "causes", "temp_rise_c")}
+        plan["temp_c"] = self.temp_now()
+        if plan["kind"] == "wake" and plan["label"] != "heat":
+            key = str(who or "")
+            self._wakes[key] = self._wakes.get(key, 0) + 1
+            plan["wake_no"] = self._wakes[key]
+        self.last = {k: plan[k] for k in ("kind", "arm", "label", "helps", "causes", "temp_rise_c", "temp_c")}
         return plan
 
     def snapshot(self) -> dict[str, Any]:
-        return {"enabled": self.enabled, "temp_rise_c": self.temp_rise(),
+        return {"enabled": self.enabled, "temp_rise_c": self.temp_rise(), "temp_c": self.temp_now(),
+                **({"wakes": dict(self._wakes)} if self.escalate_by_count else {}),
                 **({"last": self.last} if self.last else {})}

@@ -37,6 +37,10 @@ gate:
   conf_suggest: 0.45   # 이상 → 제안, 미만 → 무동작
   retry_max: suggest   # 첫 원인이 효과 없어 다른 원인을 재시도할 땐 자동 대신 제안까지만 (auto = 낮추지 않음)
   asleep_retry: null    # (시연) still_asleep_delta 로 아직 졸음이면 rest = 다른 원인 제안 대신 바로 강제 휴식. null = 지금 동작
+  # 11-05 사용자 "REST 기능 없애버리자 — 불필요, 우리 취지랑 안 맞아. 사용자가 피로해도 바쁜데 기기가 먼저 쉬는 느낌": false 면 REST(강제 휴식)에
+  # 들어가지 않는다. 깨우기가 안 먹으면 남은 원인을 재시도하고, 다 쓰면 기기를 더 부르지 않고 깰 때까지 지켜본다(MONITOR). 쉬기 제안(카드)을
+  # 수락해도 REST 대신 지켜보기. asleep_retry: rest 는 무시된다. true = 예전 동작.
+  rest: false
 
 timers:
   score_period_sec: 10           # 신뢰도 계산 주기 (2026-09-14 팀 결정: 30→10. ingest 가 이 주기로 SensorFrame 을 만든다)
@@ -62,12 +66,25 @@ demo_fast:
     fatigue_elevated_hold_sec: 0   # 0 = 이번 tick 이 임계 위면 바로 의심(엔진 _hold_ok·_held 가 같은 뜻으로 본다)
     fatigue_confirm_hold_sec: 0    # 0 = 의심 다음 tick 에 임계 위면 바로 확정
     monitor_window_sec: 5          # 11-03 결선 대본(8분): 깨운 뒤 지켜보는 시간(demo-b 60). 11-05 사용자 "5초로 바꿔" — 20 → 5
+    focus_break_poll_sec: 5        # 11-05 22:3x 사용자 "5초로 줄여" — 집중 저하(FOCUS_BREAK)에서 3분을 기다리는 동안 피로 0.95·엎드림
+                                   # 0.995 에도 깨우지 못했다(22:22~22:25 실기). 5 s 뒤 피로가 높으면 바로 피로 의심으로 넘어간다
   # 11-03 결선 대본: 배속에서는 뒤로 젖히기·거북목·턱 괴기도 개입까지 간다(점수 0.80 = 확정 0.60 위). 어떤 개입인지는
   # control.yaml demo_wake(깨우기 = 도움 순서, 거북목·턱 괴기 = 바른 자세 안내)가 정한다. normal 로 돌아가면 ingest 값으로 되돌린다.
   posture_delta:
     recline: 1.0                   # ingest 기본 0.6
     forward_head: 1.0              # ingest 기본 0.2
     chin_rest: 1.0                 # ingest 기본 0.6
+    drowsy: 0.2                    # ingest 기본 1.0. 11-06 사용자 "꾸벅졸음은 빠른시연에서는 가중치를 최소로"(0) → "졸음 1/5 로"(0.2) — 깨어 있어도 튀는 drowsy
+                                   # 하나로는 피로가 오르지 않게(모델 drowsy 플래그도 이 값, ingest/mapping._tof_posture_signal).
+                                   # 엎드림·턱 괴기와 섞인 drowsy 확률은 fatigue_group 합에는 그대로 들어간다
+  # 11-05 사용자 "엎드림이 99 %에서 조금이라도 턱 괴기로 넘어가면 기기 제어를 안 한다 — 턱 괴기도 피로. 엎드림·턱 괴기, 엎드림·꾸벅 졸음처럼
+  # 자세가 달라도 피로이면 합쳐진 피로를 기준으로": 아래 라벨들의 확률을 더해 신뢰도로 쓰고(엎드림 하한 0.99 도 합에 건다), 대표 라벨은
+  # 이 순서로 합 대비 min_share 이상인 첫 라벨(ingest/mapping._merge_fatigue_group). 턱 괴기가 졸음보다 앞인 이유: 이 위치에서 모델 drowsy 는
+  # 깨어 있을 때도 튄다(demo-b 하한 0.80 근거) — 턱 괴기에 섞인 drowsy 잡음이 대표가 되지 않게. 확정 때 엎드림이었으면 개입 tick 에 턱 괴기여도
+  # 깊은 깨우기(live.py, demo_wake deep_labels). 순수 턱 괴기는 그대로 바른 자세 안내. normal 로 돌아가면 뺀다.
+  fatigue_group:
+    labels: [face_down, chin_rest, drowsy]
+    min_share: 0.2
 
 # 개입 라우팅 그룹 (dominant = argmax(wᵢ·δᵢ))
 routing:

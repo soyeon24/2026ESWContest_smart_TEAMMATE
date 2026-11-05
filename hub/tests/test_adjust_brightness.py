@@ -152,7 +152,7 @@ def test_personalize_lamp_arms_are_relative_percent():
     assert arm_commands(arms["light_cool_bright"]["device"]) == \
         [{"target_id": "desk_lamp", "operation": "adjust_brightness", "value": {"percent": 50}, "undo": "previous"}]
     assert arm_commands(arms["light_warm_dim"]["device"])[0]["value"] == {"percent": -50}
-    assert arm_commands(arms["fan_on"]["device"]) == [dict(FAN)]  # 다른 기기는 그대로
+    assert arm_commands(arms["fan_on"]["device"]) ==         [{"target_id": "vent_fan", "operation": "set_level", "value": 3, "undo_value": 0}]   # 11-05 자동 켜기는 3단
 
 
 def test_shipped_control_yaml_lamp_commands_are_relative():

@@ -16,6 +16,7 @@ def test_sensor_changes_wait_for_acceptance_and_recover(tmp_path, verdict):
     hub = LiveHub(cache, publish=states.append, publish_request=requests.append,
                   control_cfg={"enabled": False, "esm_log_path": str(tmp_path / "esm.jsonl")},
                   out=io.StringIO())
+    hub.engine._rest_on = True          # 쉬기 수락 → REST 는 gate.rest true(예전 동작) 경로 — 11-05 기본은 REST 없음
     cfg = load_config()
     period = cfg["timers"]["score_period_sec"]
 

@@ -79,10 +79,23 @@ absent_off:
   # 튀어(15:21:15 한 tick, 15:21:35~45 두 tick — 빈 의자를 ToF 모델은 바로 앉음·뒤로 젖힘으로 보고 mmWave 가 잠깐 잡음)
   # 10 s 기준으로 무드등·음악이 빈자리에서 켜졌다. 그날 튄 재실은 모두 2 tick(20 s) 이하.
   restore_after_sec: 30
+  # 11-05 사용자 "그것도 대비해 줘": 끄기가 실패·시간 초과로 끝난 기기는 자리가 계속 비어 있는 동안 retry_sec 마다 다시 보낸다(최대 retry_max 번,
+  # 10 s × 30 = 5 분). 18:50 실기 — Pi 5 재부팅 직후 블루투스 기기가 안 붙어 끄기 3건이 모두 실패했고 다시 보내지 않았다. 0 이면 끔.
+  retry_sec: 10
+  retry_max: 30
   commands:
     - {target_id: vent_fan, operation: set_power, value: "off", ignore_cooldown: true}
     - {target_id: desk_lamp, operation: set_power, value: "off", ignore_cooldown: true}
     - {target_id: music, operation: set_music, value: {"on": false}, ignore_cooldown: true}
+
+# 11-05 사용자 "온도 자체가 피로랑 관계없이 30도 이상이면 선풍기 틀어버리자": 자리에 있고 방 온도(ESP32 DHT22 temp_c)가 on_c 이상이면
+# FSM 상태·피로와 상관없이 선풍기 켜기를 한 번(live._hot_fan). rearm_below_c 아래로 식어야 다시 켠다 — 더운 동안 사람이 끄면 그대로 둔다.
+hot_fan:
+  enabled: true
+  on_c: 30.0
+  rearm_below_c: 29.0
+  commands:
+    - {target_id: vent_fan, operation: set_level, value: 3, undo_value: 0, ignore_cooldown: true}   # 11-05 사용자 "자동으로 켤 때 1단 말고 3단"
 
 # 빠른 시연(demo_mode.py speed fast)일 때만 ACTION_POSTURE 의 기기를 사람의 '도움 순서'(첫 설정 focus_help)로 고른다 — demo_wake.py.
 # 11-03 결선 대본: A(태환, 알림 › 조명 › 선풍기) 뒤로 젖히기 → 음악, 졸기 → 음악+조명 / B(민경, 조명 › 선풍기 › 알림) 젖히기 → 조명,
@@ -93,23 +106,28 @@ demo_wake:
   mild_labels: [recline]
   deep_labels: [face_down, drowsy]
   default_order: [light, sound, wind]
+  # 11-06 사용자 "태환은 처음에는 음악을, 두번째에는 음악과 조명": 기기 수를 자세(mild 1·deep 2)가 아니라 사람별 깨우기 횟수로 —
+  # 첫 깨우기 = 도움 순서 1순위 하나, 두 번째부터 = 1·2순위 둘. 빠른 시연을 새로 켜면 처음부터.
+  escalate_by_count: true
   # 11-05 사용자 "온도 영향 받아서 선풍기를 고른다" → "24도 말고 관측하다가 온도 상승하면 그때": 선풍기는 방 온도가
   # 최근 warm_window_sec 의 가장 낮은 값보다 warm_rise_c 이상 올랐을 때만, 아니면 다음 순위(B 그대로면 조명+음악).
   # env temp_c = ESP32 DHT22(0.1 °C 단위, 잡음 ±0.2). 시연에서 안 오르면 센서 가까이 손을 대 데운다.
   warm_only: [wind]
   warm_rise_c: 0.5
   warm_window_sec: 600
+  # 11-05 21:3x 사용자 "상승 보지 말고 30도 기준으로만 판단해": 이 값이 있으면 상승(warm_rise_c) 대신 지금 방 온도 ≥ 30 °C 일 때만 선풍기.
+  warm_temp_c: 30.0
   helps:
     light: [{target_id: desk_lamp, operation: adjust_brightness, value: {percent: 60, min_raw: 153}, undo: previous}]
     sound: [{target_id: music, operation: set_music, value: {"on": true}, undo_value: {"on": false}}]
-    wind:  [{target_id: vent_fan, operation: set_power, value: "on", undo_value: "off"}]
+    wind:  [{target_id: vent_fan, operation: set_level, value: 3, undo_value: 0}]   # 3단(11-05) — 1단(45 %)은 모터가 안 도는 일이 있었다
 
 actions:
   environment:
     # vent_fan 실물 = Pico 2 W 블루투스 선풍기(firmware/pico2w_ble_fan). Pi 5 앱이 블루투스 탭에서 고른 선풍기에 실행한다.
     # 받는 operation: set_power on|off · set_level 0~3(풍량) · set_speed 0~100 · set_mode normal|natural · set_timer 초.
     # 풍량으로 켜려면 예: {target_id: vent_fan, operation: set_level, value: 3, undo_value: 0}
-    - {target_id: vent_fan, operation: set_power, value: "on", undo_value: "off"}
+    - {target_id: vent_fan, operation: set_level, value: 3, undo_value: 0}   # 11-05 사용자 "1단 말고 3단" (set_level 1~3 은 켜기 겸, 0 = 끔)
     - {target_id: desk_lamp, operation: adjust_brightness, value: {percent: 30}, undo: previous}   # 10-25: 절대값 70/undo 40 대체
   # ACTION_POSTURE(졸음 drowsy·face_down → 자세성 라우팅) 진입 시 깨우기 (2026-10-24). PC life_sim(devices.yaml) 의
   # posture_auto → lamp_cool 과 같은 뜻. 색온도(cool)는 Pi 5 어댑터(feedback_policy.dart)가 아직 받지 않아 밝기만 올린다.

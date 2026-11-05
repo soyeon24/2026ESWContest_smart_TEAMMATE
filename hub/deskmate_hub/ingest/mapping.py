@@ -127,7 +127,9 @@ def _tof_posture_signal(data: dict[str, Any], cfg: dict[str, Any]) -> Signal:
     nod_delta = _ramp(nod, 0.0, float(cfg["nod_rate_full_hz"])) if nod is not None else 0.0
     nod_delta = min(nod_delta, float(cfg.get("nod_delta_max", 1.0)))        # 0x03 끄덕임 증거 상한(시연 프로파일 0.3)
     if data.get("drowsy_model") and not filtered:
-        flag_delta = 1.0                                                       # 자세 모델(서비스)이 drowsy 라고 했다 — 라벨 증거와 같은 힘(신뢰도 하한을 넘었을 때만)
+        # 자세 모델(서비스)이 drowsy 라고 했다 — 라벨 증거(posture_delta.drowsy, 기본 1.0)와 같은 힘(신뢰도 하한을 넘었을 때만).
+        # 11-06 사용자 "꾸벅졸음은 빠른시연에서는 가중치를 최소로" — 빠른 시연이 posture_delta.drowsy 를 0 으로 덮으면 이 플래그도 0.
+        flag_delta = float(delta_table.get("drowsy", 1.0))
     elif data.get("drowsy_rule", data.get("drowsy")):
         flag_delta = float(cfg.get("rule_drowsy_delta", 1.0))                 # ESP32 0x03 규칙 플래그만 — 상한(시연 프로파일 0.3)
     else:
@@ -149,7 +151,7 @@ def _service_sample(view: CacheView, now: float, cfg: dict[str, Any]) -> Sample 
     scfg = (tcfg.get("service") or {})
     if int(svc.data.get("online_sensors") or 0) < int(scfg.get("min_online_sensors", 1)):
         return None
-    return _mask_seated_away(svc, view, now, cfg)
+    return _merge_fatigue_group(_mask_seated_away(svc, view, now, cfg), cfg)
 
 
 _NOT_SEATED = ("away", "misplaced")
@@ -206,6 +208,32 @@ def _mask_seated_away(svc: Sample, view: CacheView, now: float, cfg: dict[str, A
     return Sample(received=svc.received, ts=svc.ts, seq=svc.seq, data=dict(
         d, posture=label, posture_confidence=round(probs[label], 4), present=True,
         drowsy=False, away_masked=True, service_posture="away"))    # 대신 보여 주는 라벨일 뿐 — 졸음 플래그로 새지 않게
+
+
+def _merge_fatigue_group(svc: Sample, cfg: dict[str, Any]) -> Sample:
+    """`tof.fatigue_group` 규칙(11-05 사용자 "턱 괴기도 피로의 일종 — 엎드림·턱 괴기, 엎드림·꾸벅 졸음처럼 자세가 달라도 피로이면
+    합쳐진 피로를 기준으로 기기 제어") — 빠른 시연일 때만 demo_mode.py 가 켠다(fsm.yaml demo_fast.fatigue_group).
+
+    왜: 엎드림 하한 0.99(min_confidence_by_label)는 라벨 하나의 확률에 걸려, 엎드린 채 확률이 턱 괴기로 조금만 새도
+    (face_down 0.97·chin_rest 0.03) unknown → 피로 증거 0 → 회복으로 읽혀 기기 제어가 끊겼다.
+    그래서 피로 라벨들(labels)의 확률을 더한 값을 신뢰도로 쓴다. 더한 값이 0.5 이상(피로가 1위 묶음)일 때만 바꾸고,
+    대표 라벨은 labels 순서(앞일수록 깊은 피로)에서 합 대비 min_share 이상인 첫 라벨 — 엎드림 0.6·턱 괴기 0.4 는 엎드림,
+    엎드림 0.05·턱 괴기 0.95 는 턱 괴기. 라벨별 하한은 대표 라벨의 것을 그대로 더한 값에 건다(엎드림이면 합 0.99).
+    바꾼 표본은 fatigue_merged(원래 라벨)·fatigue_mass 를 남긴다. probs 가 없거나 묶음이 없으면 그대로."""
+    group = ((cfg.get("tof") or {}).get("fatigue_group") or {})
+    labels = [str(x) for x in (group.get("labels") or [])]
+    probs = svc.data.get("probs") or {}
+    if not labels or not isinstance(probs, dict) or svc.data.get("posture") in (None, "unknown", *_NOT_SEATED):
+        return svc                                  # 빈자리(away·away_forced)·설치 어긋남은 피로로 되돌리지 않는다
+    parts = {k: float(probs.get(k) or 0.0) for k in labels}
+    mass = sum(parts.values())
+    if mass < 0.5:
+        return svc
+    share = float(group.get("min_share", 0.2))
+    label = next((k for k in labels if parts[k] / mass >= share), max(parts, key=parts.__getitem__))
+    return Sample(received=svc.received, ts=svc.ts, seq=svc.seq, data=dict(
+        svc.data, posture=label, posture_confidence=round(min(mass, 1.0), 4), drowsy=label == "drowsy",
+        fatigue_merged=svc.data.get("posture"), fatigue_mass=round(mass, 4)))
 
 
 def _tof_sample(view: CacheView, now: float, cfg: dict[str, Any]) -> Sample | None:

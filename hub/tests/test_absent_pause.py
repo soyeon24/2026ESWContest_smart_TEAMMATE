@@ -71,7 +71,8 @@ def test_live_absent_off_once_after_after_sec(tmp_path):
 
     cfg = copy.deepcopy(CONTROL_CFG)
     cfg["adapter"] = "mqtt"                                              # mock 어댑터면 publish_control 로 안 나간다
-    cfg["absent_off"] = {"enabled": True, "after_sec": 60, "commands": [
+    # retry_sec 0: 결과가 안 오는 mqtt 어댑터라 재시도(11-05 retry_sec·retry_max)가 끼면 "한 번만"을 볼 수 없다 — 재시도는 따로 시험
+    cfg["absent_off"] = {"enabled": True, "after_sec": 60, "retry_sec": 0, "commands": [
         {"target_id": "vent_fan", "operation": "set_power", "value": "off", "ignore_cooldown": True},
         {"target_id": "desk_lamp", "operation": "set_power", "value": "off", "ignore_cooldown": True},
         {"target_id": "music", "operation": "set_music", "value": {"on": False}, "ignore_cooldown": True}]}

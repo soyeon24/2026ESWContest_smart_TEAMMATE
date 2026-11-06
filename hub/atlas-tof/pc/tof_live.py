@@ -47,7 +47,7 @@ def to_input(dist, status):
 
 
 KO = {"upright": "바른자세", "lean_forward": "상체 앞으로", "recline": "뒤로 젖힘", "face_down": "엎드림",
-      "chin_rest": "턱괴기", "drowsy": "꾸벅 졸음", "away": "자리비움", "misplaced": "위치 재조정", "forward_head": "거북목"}
+      "chin_rest": "턱괴기", "drowsy": "졸음 판정 중", "away": "자리비움", "misplaced": "위치 재조정", "forward_head": "거북목"}
 
 
 def orient(a, flip_rows, flip_cols):

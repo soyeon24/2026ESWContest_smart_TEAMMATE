@@ -477,12 +477,13 @@ def hub_floor_note(posture: str, conf: float | None, floors: dict[str, float]) -
     return f"hub 무시 ({conf:.2f} < {f:.2f})"
 
 
-AWAY_BOTTOM_ROW_MM = 700   # hub tof.service.away_bottom_row_mm (10-27) 과 같은 값
+AWAY_BOTTOM_ROW_MM = 1000  # hub tof.service.away_bottom_row_mm — 11-05 70 → 80 → 11-06 90 → 100 cm. 설정(ingest.yaml)을 읽으면 그 값으로 바뀐다
 
 
-def bottom_row_state(raw: Any, max_mm: float = AWAY_BOTTOM_ROW_MM) -> str | None:
+def bottom_row_state(raw: Any, max_mm: float | None = None) -> str | None:
     """`/raw` 격자 가장 아랫줄 → 'near'(어느 센서든 max_mm 보다 가까운 유효 칸) | 'far'(유효 8칸 이상인 센서 모두 아랫줄이
-    max_mm 이상이거나 비었음) | None(격자 없음). hub _bottom_row_state 와 같은 규칙."""
+    max_mm 이상이거나 비었음) | None(격자 없음). hub _bottom_row_state 와 같은 규칙. max_mm 없으면 [AWAY_BOTTOM_ROW_MM]."""
+    max_mm = AWAY_BOTTOM_ROW_MM if max_mm is None else max_mm
     working = 0
     for s in parse_raw(raw)["sensors"]:
         if not s["grid"] or s["valid_count"] < 8:
@@ -502,6 +503,7 @@ def mask_seated_away(j: Any, raw: Any) -> Any:
     if p in (None, "unknown"):
         return j
     state = bottom_row_state(raw)
+    j = {**j, "away_cm": round(AWAY_BOTTOM_ROW_MM / 10)}      # 화면 문구(아랫줄 < N cm)가 hub 설정과 같게(11-05 80 cm)
     if state == "far" and p != "away":
         return {**j, "posture": "away", "posture_ko": POSTURE_KO.get("away", "away"), "conf": 1.0, "away_forced": True}
     if state != "near" or p != "away":
@@ -1003,7 +1005,8 @@ def recommendation(state: str, cause: str | None = None) -> str:
 
 # --------------------------------------------------------------------------- 영상 모드
 
-VIDEO_POSTURE_KO = {**POSTURE_KO, "drowsy": "졸음(꾸벅)", "face_down": "엎드림", "lean_forward": "앞으로 숙임"}
+VIDEO_POSTURE_KO = {**POSTURE_KO, "drowsy": "졸음 판정 중",   # 11-06 사용자 "꾸벅졸음 대신 졸음판정중"
+                     "face_down": "엎드림", "lean_forward": "앞으로 숙임"}
 
 
 def video_view(phase_env: Any, posture: Any, control: dict[str, Any]) -> dict[str, Any]:
@@ -2102,6 +2105,10 @@ def load_hub_rules(config_dir: str, profile: str = "") -> dict[str, Any]:
         return out
     th, tm, gate = fsm.get("thresholds") or {}, fsm.get("timers") or {}, fsm.get("gate") or {}
     tof = ingest.get("tof") or {}
+    global AWAY_BOTTOM_ROW_MM
+    away_mm = (tof.get("service") or {}).get("away_bottom_row_mm")
+    if isinstance(away_mm, (int, float)) and away_mm > 0:
+        AWAY_BOTTOM_ROW_MM = float(away_mm)                     # 빈 의자 거리도 hub 설정에서(11-05 80 · 11-06 100 cm)
     out.update(
         focus_low=th.get("fatigue_focus_low"), suspect=th.get("fatigue_suspect_low"), confirm=th.get("fatigue_confirm"),
         natural=th.get("natural_recovery"),

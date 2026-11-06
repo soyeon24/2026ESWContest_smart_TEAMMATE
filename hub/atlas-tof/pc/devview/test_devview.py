@@ -536,7 +536,7 @@ def test_video_view_bar_fields():
     ph = env({"fsm_state": "FOCUS_NPC", "context": "npc", "c_fatigue": 0.83,
               "sensor_summary": {"co2_ppm": 1106, "temp_c": 22.5, "lux": 350}})
     v = dv.video_view(ph, {"posture": "drowsy", "conf": 0.9, "valid": True}, {"headline": "지금 개입 없음"})
-    assert v["posture"] == "졸음(꾸벅)" and v["chips"] == ["허브", "집중", "책·필기"]
+    assert v["posture"] == "졸음 판정 중" and v["chips"] == ["허브", "집중", "책·필기"]
     assert v["fatigue"] == 0.83 and v["env"] == "CO₂ 1106 ppm · 22.5 ℃ · 350 lx" and v["decision"] == "지금 개입 없음"
     assert dv.video_view(ph, None, {"headline": "x", "status": "✓ 실행됨", "time": "12:00:01"})["decision_status"] ==         "✓ 실행됨 · 12:00:01"
     e = dv.video_view(None, None, {})
@@ -1551,13 +1551,13 @@ def test_seated_away_is_masked_like_hub():
                              "status": [5] * 56 + [status] * 8}, far]}
     v = dv.posture_view(dv.mask_seated_away(svc, raw(620)))
     assert v["posture"] == "recline" and v["away_masked"] is True and v["conf"] == 0.04
-    for r in (None, raw(700), raw(950), raw(-1), raw(500, status=255)):          # far 거나 격자 없음 → away 그대로
+    for r in (None, raw(1000), raw(1050), raw(-1), raw(500, status=255)):          # far 거나 격자 없음 → away 그대로
         v = dv.posture_view(dv.mask_seated_away(svc, r))
         assert v["posture"] == "away" and v["away_masked"] is False
     up = dict(svc, posture="upright")
     assert dv.mask_seated_away(up, raw(500))["posture"] == "upright"
     fd = dict(svc, posture="face_down", conf=0.99)
-    v = dv.posture_view(dv.mask_seated_away(fd, raw(870)))
+    v = dv.posture_view(dv.mask_seated_away(fd, raw(1050)))
     assert v["posture"] == "away" and v["away_forced"] is True
     assert dv.mask_seated_away(fd, raw(200))["posture"] == "face_down"
     dead = {"sensors": [{"id": 0, "have": True, "w": 8, "h": 8, "dist_mm": [-1] * 64, "status": [255] * 64}]}
